@@ -1,0 +1,14 @@
+{
+  "name": "eve-flip-scanner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EVE Online station-flip scanner (ESI + EVE SSO) with local web UI",
+  "scripts": {
+    "start": "node server.mjs",
+    "scan": "node cli-scan.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

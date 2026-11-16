@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVE Flip Scanner</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <span>EVE <b>FLIP</b></span>
+      <span class="tag">market scanner</span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="scan" class="active">Сканер</button>
+      <button data-tab="character">Персонаж</button>
+      <button data-tab="settings">Настройки</button>
+    </nav>
+    <div class="authbox" id="authbox">
+      <span class="muted">не авторизован</span>
+      <button class="btn small" id="btnLogin">Войти через EVE</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= СКАНЕР ================= -->
+    <section id="tab-scan" class="tab active">
+      <div class="panel toolbar">
+        <button id="btnScan" class="btn primary">Сканировать рынок</button>
+        <div class="capture">
+          <label for="capture">Доля рынка</label>
+          <input type="range" id="capture" min="0.1" max="1" step="0.05">
+          <span id="captureVal" class="mono">0.50</span>
+        </div>
+        <div class="progress" id="progress" hidden>
+          <div class="bar"><div class="fill" id="progressFill"></div></div>
+          <div class="ptext" id="progressText">…</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="scanmeta mono" id="scanmeta"></div>
+      </div>
+
+      <div class="panel filters">
+        <input id="fSearch" class="search" type="search" placeholder="Поиск по названию…">
+        <label class="fld">Нетто&nbsp;%&nbsp;≥ <input id="fMargin" type="number" step="0.5" value="2"></label>
+        <label class="fld">Объём/день&nbsp;≥ <input id="fVolume" type="number" value="10"></label>
+        <label class="fld">Цена&nbsp;≤ <input id="fMaxPrice" type="number" value="2000000000"></label>
+        <select id="fLocation"><option value="">Все локации</option></select>
+        <select id="fKind">
+          <option value="">Все рынки</option>
+          <option value="npc">NPC-хабы</option>
+          <option value="structure">Структуры</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="fOnlyGood" checked> только прибыльные</label>
+        <span class="count" id="fCount"></span>
+      </div>
+
+      <div class="panel tablewrap">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th data-sort="typeName" class="left">Товар</th>
+              <th data-sort="locationName" class="left">Локация</th>
+              <th data-sort="bid" class="num">Buy</th>
+              <th data-sort="ask" class="num">Sell</th>
+              <th data-sort="spreadPct" class="num">Спред</th>
+              <th data-sort="marginNet" class="num" title="Прибыль после комиссий с консервативной ценой выхода (около VWAP)">Нетто</th>
+              <th data-sort="profitUnit" class="num">Приб./шт</th>
+              <th data-sort="volumeDay" class="num">Объём/день</th>
+              <th data-sort="iskDay" class="num">ISK/день</th>
+              <th data-sort="roiDay" class="num">ROI/день</th>
+              <th data-sort="daysToSell" class="num">Оборот</th>
+              <th data-sort="competition" class="num">Конк.</th>
+              <th data-sort="capital" class="num">Капитал</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty" id="empty">
+          <div class="empty-icon">◎</div>
+          <div>Пока пусто. Нажмите «Сканировать рынок».</div>
+          <div class="muted small">Первый скан качает стаканы всех выбранных хабов — это минута-две.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ПЕРСОНАЖ ================= -->
+    <section id="tab-character" class="tab">
+      <div id="charEmpty" class="panel empty">
+        <div class="empty-icon">⚉</div>
+        <div>Нет данных персонажа.</div>
+        <div class="muted small">Настройте Client ID и войдите через EVE SSO — подтянутся кошелёк, скиллы, стендинги и структуры.</div>
+      </div>
+      <div id="charContent" hidden>
+        <div class="cards">
+          <div class="card">
+            <div class="card-label">Персонаж</div>
+            <div class="card-value" id="cName">—</div>
+            <div class="muted small mono" id="cId"></div>
+          </div>
+          <div class="card">
+            <div class="card-label">Кошелёк</div>
+            <div class="card-value mono" id="cWallet">—</div>
+            <div class="muted small">доступный капитал</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Слоты ордеров</div>
+            <div class="card-value mono" id="cSlots">—</div>
+            <div class="muted small" id="cSlotsSub"></div>
+          </div>
+          <div class="card">
+            <div class="card-label">Налог / брокер</div>
+            <div class="card-value mono" id="cFees">—</div>
+            <div class="muted small">Accounting / Broker Relations</div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="panel">
+            <h3>Навыки торговли</h3>
+            <table class="mini" id="skillTable"></table>
+          </div>
+          <div class="panel">
+            <h3>Комиссии по хабам</h3>
+            <table class="mini" id="hubFeeTable"></table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Структуры с доступом</h3>
+            <button class="btn small" id="btnRefreshChar">Обновить данные</button>
+          </div>
+          <div id="structureList" class="structures"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= НАСТРОЙКИ ================= -->
+    <section id="tab-settings" class="tab">
+      <div class="panel">
+        <h3>Приложение EVE SSO</h3>
+        <p class="muted">
+          Для доступа к ордерам, кошельку, скиллам и структурам нужно зарегистрировать локальное приложение.
+          Это бесплатно и делается один раз.
+        </p>
+        <ol class="steps">
+          <li>Откройте <a href="https://developers.eveonline.com/applications" target="_blank" rel="noreferrer">developers.eveonline.com/applications</a> → <b>Create New Application</b>.</li>
+          <li>Тип подключения — <b>Authentication &amp; API Access</b>. Callback URL укажите ровно такой:<br>
+            <span class="copyline"><code id="callbackUrl">http://127.0.0.1:8787/callback</code>
+            <button class="btn tiny" id="btnCopyCallback">копировать</button></span>
+          </li>
+          <li>Scopes можно не выбирать при регистрации — они запрашиваются при входе.</li>
+          <li>Скопируйте <b>Client ID</b> и вставьте ниже. Secret не нужен (используется PKCE).</li>
+        </ol>
+        <div class="formrow">
+          <label for="clientId">Client ID</label>
+          <input id="clientId" class="wide" placeholder="например, 1a2b3c4d5e6f..." autocomplete="off">
+          <button class="btn" id="btnSaveClient">Сохранить</button>
+        </div>
+        <div class="muted small" id="clientStatus"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Структуры для сканирования</h3>
+        <p class="muted small">
+          Структуры находятся автоматически по вашим ордерам и ассетам. Можно добавить вручную по ID —
+          например, публичный хаб. Комиссия владельца влияет на расчёт прибыли.
+        </p>
+        <div class="formrow">
+          <input id="structId" placeholder="ID структуры (например, 1028858195912)" class="wide">
+          <input id="structTax" type="number" step="0.1" min="0" max="10" value="1" class="narrow" title="комиссия владельца, %">
+          <span class="muted small">% владельца</span>
+          <button class="btn" id="btnAddStruct">Добавить</button>
+        </div>
+        <div id="settingsStructList" class="structures"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Параметры расчёта</h3>
+        <div class="formrow">
+          <label>Ставка владельца по умолчанию, %</label>
+          <input id="defTax" type="number" step="0.1" min="0" max="10" value="1" class="narrow">
+        </div>
+        <div class="formrow">
+          <label>Мин. нетто-маржа, %</label>
+          <input id="defMargin" type="number" step="0.5" value="2" class="narrow">
+        </div>
+        <div class="formrow">
+          <label>Мин. объём, шт/день</label>
+          <input id="defVolume" type="number" value="20" class="narrow">
+        </div>
+        <button class="btn" id="btnSaveCalc">Сохранить</button>
+      </div>
+
+      <div class="panel">
+        <h3>Диагностика</h3>
+        <div class="mono small muted" id="diag">—</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <aside class="drawer" id="drawer" hidden>
+    <button class="drawer-close" id="drawerClose">×</button>
+    <div id="drawerBody"></div>
+  </aside>
+
+  <div class="toast" id="toast" hidden></div>
+</div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+# EVE Flip Scanner
+
+Локальный сканер краткосрочных торговых возможностей в EVE Online: стаканы пяти NPC-хабов и
+игровых структур через ESI, расчёт прибыли после комиссий, веб-интерфейс в браузере.
+
+![Node](https://img.shields.io/badge/node-%3E%3D20-3fc3ea)
+
+## Что умеет
+
+- Сканирует стаканы **Jita, Amarr, Dodixie, Rens, Hek** и **структур**, к которым у персонажа есть доступ.
+- Считает **нетто-прибыль после комиссий** (налог 7.5% − Accounting, брокер 3% − Broker Relations − стендинги).
+- Оценивает **реалистичную цену выхода** около VWAP, а не по «мечтательному» лучшему ask.
+- Ранжирует по **ISK/день** с учётом объёма, конкуренции и глубины стакана.
+- Подтягивает из EVE SSO кошелёк, скиллы, стендинги, активные ордера и структуры.
+- Показывает детали: лестницу ордеров, график цены за 90 дней, порог безубыточности.
+
+## Быстрый старт
+
+```bash
+cd eve-flip
+node server.mjs
+```
+
+Откройте **http://127.0.0.1:8787** и нажмите «Сканировать рынок».
+
+Требуется Node.js 20+ (проверено на 22). Зависимостей нет — только стандартная библиотека.
+
+## Настройка EVE SSO (для ордеров, кошелька и структур)
+
+1. Откройте https://developers.eveonline.com/applications → **Create New Application**.
+2. Тип подключения — **Authentication & API Access**.
+3. Callback URL — ровно `http://127.0.0.1:8787/callback` (должен совпадать с настройкой в приложении).
+4. Скопируйте **Client ID** и вставьте его в разделе «Настройки» → «Приложение EVE SSO».
+5. Нажмите «Войти через EVE» в правом верхнем углу.
+
+Client Secret не нужен: используется OAuth2 Authorization Code + PKCE.
+
+Запрашиваемые scopes:
+
+```
+esi-skills.read_skills.v1
+esi-wallet.read_character_wallet.v1
+esi-characters.read_standings.v1
+esi-markets.read_character_orders.v1
+esi-markets.structure_markets.v1
+esi-universe.read_structures.v1
+esi-assets.read_assets.v1
+esi-location.read_location.v1
+```
+
+Без авторизации сканер работает в публичном режиме: только NPC-хабы и оценка комиссий
+по максимальным скиллам (Accounting V, Broker Relations V).
+
+## Как считается прибыль
+
+Комиссии (актуально на 11.2026):
+
+```
+sales tax  = 7.5% × (1 − 0.11 × Accounting)
+broker fee = 3% − 0.3% × BrokerRelations − 0.03% × фракция − 0.02% × корпорация   (мин. 1%)
+```
+
+Структуры: `0.5%` в SCC + ставка владельца, скиллы не действуют.
+
+Флип через два ордера:
+
+```
+покупка:  bid × (1 + broker)
+продажа:  exit × (1 − tax − broker)
+exit = min(ask, max(VWAP30, bid))
+```
+
+Последняя строка — ключевая: продавать по лучшему ask оптимистично, если он сильно выше VWAP.
+Сканер берёт VWAP, зажатый между bid и ask, и считает прибыль по нему.
+
+Дневная прибыль: `объём/день × доля_рынка × доля_объёма × прибыль_на_единицу`.
+Доля рынка = `1 / (1 + 0.7 × (конкуренты − 1))`. Ползунок «Доля рынка» задаёт, какую часть
+ежедневного оборота вы рассчитываете захватить.
+
+## Ограничения и нюансы
+
+- **Структуры** видны только там, где у персонажа есть док-права. Список подтягивается из ассетов,
+  ордеров и текущей локации; можно добавить вручную по ID.
+- **История цен** у ESI отдаётся примерно 0.7 запроса/с, поэтому за один скан обогащается
+  не более `historyBudget` пар «тип + регион» (по умолчанию 250, ≈6 минут в первый раз).
+  Дальше ответы кэшируются на сутки и сканы идут быстро.
+- Стаканы кэшируются ESI на 5 минут — чаще сканировать смысла нет.
+- В EVE **нет коротких продаж**: «в короткую» здесь = быстрое закрытие позиции.
+- Данные — не финансовый совет; проверяйте стакан в игре перед выставлением ордеров.
+
+## Файлы данных
+
+```
+data/config.json      настройки (clientId, хабы, структуры)
+data/tokens.json      токены EVE SSO — не передавайте никому
+data/character.json   снимок данных персонажа
+data/results.json     последний результат скана
+data/cache/           кэш ответов ESI (история, статика)
+```
+
+## CLI
+
+```bash
+node cli-scan.mjs
+```
+
+Запускает скан без браузера и печатает топ-25 позиций.
+
+## Развёртывание
+
+### Локально (Windows / Linux / macOS)
+
+```bash
+git clone <адрес-репозитория> eve-flip
+cd eve-flip
+node server.mjs
+```
+
+Откройте http://127.0.0.1:8787. Порт и адрес можно переопределить переменными `PORT` и `HOST`.
+
+### Постоянный запуск на Linux (systemd)
+
+```ini
+# /etc/systemd/system/eve-flip.service
+[Unit]
+Description=EVE Flip Scanner
+After=network-online.target
+
+[Service]
+User=eveflip
+WorkingDirectory=/opt/eve-flip
+ExecStart=/usr/bin/node server.mjs
+Restart=always
+RestartSec=5
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now eve-flip
+```
+
+### Постоянный запуск на Windows
+
+- **Планировщик задач**: «Создать задачу» → «При запуске компьютера» → действие «Запуск программы»:
+  программа `C:\Program Files\nodejs\node.exe`, аргументы `server.mjs`, рабочая папка — папка проекта.
+- Либо [NSSM](https://nssm.cc/): `nssm install EveFlip "C:\Program Files\nodejs\node.exe" "C:\path\to\eve-flip\server.mjs"`.
+
+### Docker
+
+```bash
+docker build -t eve-flip .
+docker run -d --name eve-flip --restart unless-stopped \
+  -p 127.0.0.1:8787:8787 \
+  -v eve-flip-data:/app/data \
+  eve-flip
+```
+
+Важно: `-p 127.0.0.1:8787:8787` публикует порт только на локальном интерфейсе.
+Внутри образа `HOST=0.0.0.0`, иначе контейнер не пробросит порт.
+
+### Доступ с другого компьютера
+
+Не выставляйте приложение напрямую в интернет: у него нет пароля, а `data/tokens.json`
+даёт доступ к персонажу. Правильный способ — SSH-туннель:
+
+```bash
+ssh -L 8787:127.0.0.1:8787 user@server
+```
+
+и открыть http://127.0.0.1:8787 на своей машине. Если нужен постоянный веб-доступ —
+ставьте reverse proxy (Caddy/nginx) с HTTPS и basic auth, и не забудьте указать
+соответствующий Callback URL в приложении EVE SSO.
+
+### Обновление и бэкап
+
+```bash
+git pull
+sudo systemctl restart eve-flip
+```
+
+Бэкапьте `data/config.json` и `data/tokens.json` (второй — секрет, не коммитьте его).
+Каталог `data/` исключён из git.
+
+## Структура проекта
+
+```
+server.mjs          HTTP-сервер и API
+lib/esi.mjs         клиент ESI: лимиты, ретраи, ETag-кэш, пагинация
+lib/auth.mjs        OAuth2 + PKCE, refresh токенов
+lib/character.mjs   кошелёк, скиллы, стендинги, структуры, комиссии
+lib/scan.mjs        сбор стаканов, отбор, история, скоринг
+lib/fees.mjs        формулы комиссий
+lib/store.mjs       конфиг и данные
+public/             интерфейс (без сборки)
+```
