@@ -8,6 +8,7 @@ import {
   HUBS,
   PUBLIC_DIR,
   CACHE_DIR,
+  DATA_DIR,
   initDirs,
   loadConfig,
   saveConfig,
@@ -25,6 +26,7 @@ import { Auth } from "./lib/auth.mjs";
 import { loadCharacter as fetchCharacter, defaultFees } from "./lib/character.mjs";
 import { runScan } from "./lib/scan.mjs";
 import { analyzeColony, summarizePi } from "./lib/pi.mjs";
+import { IntelService } from "./lib/intel.mjs";
 
 initDirs();
 
@@ -58,6 +60,9 @@ let scanState = {
   finishedAt: null,
   error: null,
 };
+
+const intel = new IntelService({ esi, auth, getConfig: () => config, dataDir: DATA_DIR });
+intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
 
 // ---------------------------------------------------------------- helpers
 
@@ -835,6 +840,73 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/pi/refresh" && req.method === "POST") {
       const data = await buildPiOverview(true);
       sendJson(req, res, 200, data);
+      return;
+    }
+
+    if (pathname === "/api/intel/state" && req.method === "GET") {
+      sendJson(req, res, 200, await intel.snapshot());
+      return;
+    }
+
+    if (pathname === "/api/intel/channels" && req.method === "GET") {
+      sendJson(req, res, 200, { channels: intel.listChannels(), selected: config.intel?.channels || [] });
+      return;
+    }
+
+    if (pathname === "/api/intel/config" && req.method === "POST") {
+      const body = await readBody(req);
+      const prev = new Set(config.intel?.channels || []);
+      const nextIntel = { ...(config.intel || {}) };
+      if (Array.isArray(body.channels)) nextIntel.channels = body.channels.map(String);
+      if (body.threshold !== undefined) nextIntel.threshold = Math.min(20, Math.max(1, Number(body.threshold) || 5));
+      if (body.sound !== undefined) nextIntel.sound = Boolean(body.sound);
+      if (body.recentMinutes !== undefined)
+        nextIntel.recentMinutes = Math.min(1440, Math.max(2, Number(body.recentMinutes) || 30));
+      if (typeof body.chatDir === "string" && body.chatDir.trim()) nextIntel.chatDir = body.chatDir.trim();
+
+      config = { ...config, intel: nextIntel };
+      saveConfig(config);
+
+      const changed =
+        nextIntel.channels.length !== prev.size ||
+        nextIntel.channels.some((c) => !prev.has(c)) ||
+        body.recentMinutes !== undefined;
+      if (changed) {
+        intel.offsets.clear();
+        intel.scanFiles(true);
+      }
+      sendJson(req, res, 200, { ok: true, intel: nextIntel });
+      return;
+    }
+
+    if (pathname === "/api/intel/sound" && req.method === "POST") {
+      const body = await readBody(req);
+      try {
+        const ext = intel.saveSound(body.dataUrl);
+        sendJson(req, res, 200, { ok: true, ext });
+      } catch (e) {
+        sendJson(req, res, 400, { error: e.message });
+      }
+      return;
+    }
+
+    if (pathname === "/api/intel/sound" && req.method === "GET") {
+      if (!intel.soundFile || !fs.existsSync(intel.soundFile)) {
+        sendJson(req, res, 404, { error: "Файл не загружен" });
+        return;
+      }
+      const ext = path.extname(intel.soundFile).toLowerCase();
+      const type =
+        ext === ".mp3" ? "audio/mpeg" : ext === ".wav" ? "audio/wav" : ext === ".ogg" ? "audio/ogg" : "audio/mp4";
+      res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
+      fs.createReadStream(intel.soundFile).pipe(res);
+      return;
+    }
+
+    if (pathname === "/api/intel/refresh" && req.method === "POST") {
+      intel.offsets.clear();
+      intel.scanFiles(true);
+      sendJson(req, res, 200, { ok: true });
       return;
     }
 

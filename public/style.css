@@ -328,3 +328,42 @@ code {
 }
 .colony-tooltip .t { color: var(--text); font-weight: 600; }
 .colony-tooltip .m { color: var(--muted); font-size: 11px; }
+
+/* ---------------- интель ---------------- */
+.intel-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .intel-grid { grid-template-columns: 1fr; } }
+
+.intel-channels { max-height: 62vh; overflow: auto; }
+.intel-channels .chkrow {
+  display: flex; align-items: center; gap: 8px; padding: 5px 4px;
+  border-bottom: 1px solid rgba(120,165,225,.06); font-size: 12px;
+}
+.intel-channels .chkrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.intel-channels .chkrow .mt { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.intel-channels input { accent-color: var(--accent); }
+
+.intel-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.intel-table th {
+  text-align: left; padding: 7px 8px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line2); font-weight: 600; white-space: nowrap;
+}
+.intel-table th.num { text-align: right; }
+.intel-table td { padding: 6px 8px; border-bottom: 1px solid rgba(120,165,225,.06); }
+.intel-table td.num { text-align: right; font-family: var(--mono); }
+.intel-table tr:hover { background: rgba(72,201,240,.04); }
+.intel-table a { color: var(--text); }
+.intel-table a:hover { color: var(--accent); }
+.intel-table .ship { color: var(--muted); }
+.intel-table .age { color: var(--muted); font-size: 12px; }
+
+.jumps { display: inline-block; min-width: 30px; text-align: center; padding: 2px 7px; border-radius: 5px; font-family: var(--mono); font-size: 12px; }
+.jumps.j0 { background: rgba(255,96,115,.18); color: #ff8f9c; }
+.jumps.j1 { background: rgba(255,140,60,.16); color: #ffb27a; }
+.jumps.j2 { background: rgba(240,178,74,.14); color: var(--warn); }
+.jumps.j3 { background: rgba(56,214,139,.12); color: var(--good); }
+.jumps.jx { background: rgba(120,165,225,.08); color: var(--muted); }
+
+.intel-empty { padding: 24px 8px; color: var(--muted); font-size: 13px; }
+
+.intel-new { animation: intelFlash 1.2s ease; }
+@keyframes intelFlash { from { background: rgba(255,140,60,.25); } to { background: transparent; } }

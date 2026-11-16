@@ -16,6 +16,10 @@ const state = {
   pi: null,
   piFilter: "all",
   piTimer: null,
+  intel: null,
+  intelTimer: null,
+  intelSeen: new Set(),
+  intelLoaded: false,
 };
 
 // ------------------------------------------------------------------ utils
@@ -73,6 +77,13 @@ function setTab(name, updateHash = true) {
   if (name === "character") renderCharacter();
   if (name === "settings") renderSettings();
   if (name === "pi") loadPi();
+  if (name === "intel") {
+    loadIntel();
+    startIntelPoll();
+  } else {
+    clearInterval(state.intelTimer);
+    state.intelTimer = null;
+  }
 }
 $("#tabs").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-tab]");
@@ -91,7 +102,7 @@ async function boot() {
     renderFilters();
     bindUI();
     const initialTab = location.hash.replace("#", "");
-    if (["scan", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
+    if (["scan", "intel", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
     if (state.cfg.scan?.running) pollScan();
 
     const params = new URLSearchParams(location.search);
@@ -1018,6 +1029,177 @@ function drawPlanet(canvas, colony) {
   }
 }
 
+// ------------------------------------------------------------------ интель
+function fmtAge(sec) {
+  if (sec === null || sec === undefined) return "—";
+  if (sec < 60) return `${Math.max(0, Math.round(sec))}с`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}м`;
+  return `${Math.floor(sec / 3600)}ч ${Math.floor((sec % 3600) / 60)}м`;
+}
+
+function alertKey(a) {
+  return `${a.name}|${a.systemId}|${Math.floor((a.ts || 0) / 60000)}`;
+}
+
+function beep() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.28);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.3);
+    setTimeout(() => ctx.close().catch(() => {}), 600);
+  } catch {
+    /* без звука */
+  }
+}
+
+function playIntelSound(force = false) {
+  const d = state.intel;
+  if (!force && d?.config?.sound === false) return;
+  if (d?.config?.hasSound) {
+    const a = new Audio(`/api/intel/sound?ts=${Date.now()}`);
+    a.play().catch(() => beep());
+  } else {
+    beep();
+  }
+}
+
+function checkIntelAlerts(alerts) {
+  if (!state.intelLoaded) {
+    for (const a of alerts) state.intelSeen.add(alertKey(a));
+    state.intelLoaded = true;
+    return;
+  }
+  let fresh = false;
+  for (const a of alerts) {
+    const k = alertKey(a);
+    if (!state.intelSeen.has(k)) {
+      state.intelSeen.add(k);
+      fresh = true;
+    }
+  }
+  if (state.intelSeen.size > 800) state.intelSeen = new Set([...state.intelSeen].slice(-400));
+  if (fresh) playIntelSound();
+}
+
+function intelRow(p) {
+  const j = p.jumps;
+  const cls = j === null || j === undefined ? "jx" : j === 0 ? "j0" : j === 1 ? "j1" : j === 2 ? "j2" : "j3";
+  const name = p.zkb
+    ? `<a href="${p.zkb}" target="_blank" rel="noreferrer">${esc(p.name)}</a>`
+    : esc(p.name);
+  const sys = p.systemName
+    ? `<a href="https://evemaps.dotlan.net/system/${encodeURIComponent(p.systemName)}" target="_blank" rel="noreferrer">${esc(
+        p.systemName
+      )}</a>`
+    : `<span class="muted">—</span>`;
+  const ship = p.ship ? esc(p.ship) : `<span class="muted">—</span>`;
+  return `<tr>
+    <td>${name}</td>
+    <td class="ship">${ship}</td>
+    <td>${sys}</td>
+    <td class="num"><span class="jumps ${cls}">${j === null || j === undefined ? "?" : j}</span></td>
+    <td class="age">${p.nearest ? esc(p.nearest) : "—"}</td>
+    <td class="age">${fmtAge(p.ageSec)}</td>
+  </tr>`;
+}
+
+function intelTable(list) {
+  return `<table class="intel-table"><thead><tr>
+      <th>Пилот</th><th>Корабль</th><th>Система</th><th class="num">Прыжков</th><th>Мой чар</th><th>Когда</th>
+    </tr></thead><tbody>${list.slice(0, 80).map(intelRow).join("")}</tbody></table>`;
+}
+
+function renderIntel() {
+  const d = state.intel;
+  if (!d) return;
+  $("#intelChatDir").textContent = d.chatDir || "";
+  $("#intelMeta").textContent = `${d.stats.messages} сообщений · ${d.stats.pilots} пилотов${
+    d.stats.lastMessageAt ? ` · ${fmtAge(Math.round((Date.now() - d.stats.lastMessageAt) / 1000))} назад` : ""
+  }`;
+
+  $("#intelOwn").innerHTML = d.own.length
+    ? d.own
+        .map(
+          (o) => `<span class="chip active">${esc(o.name)}${o.systemName ? ` · ${esc(o.systemName)}` : " · нет позиции"}</span>`
+        )
+        .join("")
+    : `<span class="muted small">нет авторизованных персонажей — позиция неизвестна</span>`;
+
+  $("#intelThreshold").value = d.threshold;
+  $("#intelThresholdVal").textContent = d.threshold;
+  $("#intelSound").checked = d.config.sound !== false;
+
+  const selected = new Set(d.config.channels || []);
+  const chans = d.channels || [];
+  $("#intelChannels").innerHTML = chans.length
+    ? chans
+        .map(
+          (c) => `<label class="chkrow">
+            <input type="checkbox" data-ch="${esc(c.name)}" ${selected.has(c.name) ? "checked" : ""}>
+            <span class="nm" title="${esc(c.name)}">${esc(c.name)}</span>
+            <span class="mt">${c.files}</span>
+          </label>`
+        )
+        .join("")
+    : `<div class="intel-empty">Логи не найдены. Проверьте папку Chatlogs.</div>`;
+
+  const alerts = d.alerts || [];
+  $("#intelAlertCount").textContent = `${alerts.length} в радиусе ${d.threshold}`;
+  $("#intelAlerts").innerHTML = alerts.length
+    ? intelTable(alerts)
+    : `<div class="intel-empty">Пока никого рядом. Выберите чаты слева и дождитесь сообщений.</div>`;
+
+  const pilots = d.pilots || [];
+  $("#intelPilotCount").textContent = `${pilots.length}`;
+  $("#intelPilots").innerHTML = pilots.length ? intelTable(pilots) : `<div class="intel-empty">Нет упоминаний.</div>`;
+
+  checkIntelAlerts(alerts);
+}
+
+async function loadIntel() {
+  try {
+    state.intel = await api("/api/intel/state");
+    renderIntel();
+  } catch (e) {
+    toast("Интель: " + e.message, true);
+  }
+}
+
+function startIntelPoll() {
+  clearInterval(state.intelTimer);
+  state.intelTimer = setInterval(async () => {
+    if (!document.querySelector("#tab-intel")?.classList.contains("active")) return;
+    try {
+      state.intel = await api("/api/intel/state");
+      renderIntel();
+    } catch {
+      /* ignore */
+    }
+  }, 2000);
+}
+
+async function saveIntelChannels() {
+  const checks = [...document.querySelectorAll("#intelChannels input[data-ch]")];
+  const channels = checks.filter((c) => c.checked).map((c) => c.dataset.ch);
+  try {
+    await api("/api/intel/config", { method: "POST", body: JSON.stringify({ channels }) });
+    await loadIntel();
+    toast("Чаты сохранены");
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 // ------------------------------------------------------------------ settings
 function renderSettings() {
   if (!state.cfg) return;
@@ -1125,6 +1307,48 @@ function bindUI() {
     else set.delete(cb.dataset.pidone);
     piDoneSave(set);
     cb.closest(".pi-row")?.classList.toggle("done", cb.checked);
+  });
+
+  // --- интель ---
+  $("#intelThreshold").oninput = (e) => {
+    $("#intelThresholdVal").textContent = e.target.value;
+  };
+  $("#intelThreshold").onchange = async (e) => {
+    await api("/api/intel/config", { method: "POST", body: JSON.stringify({ threshold: Number(e.target.value) }) });
+    await loadIntel();
+  };
+  $("#intelSound").onchange = async (e) => {
+    await api("/api/intel/config", { method: "POST", body: JSON.stringify({ sound: e.target.checked }) });
+  };
+  $("#intelSoundPick").onclick = () => $("#intelSoundFile").click();
+  $("#intelSoundFile").onchange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      toast("Файл больше 2 МБ", true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        await api("/api/intel/sound", { method: "POST", body: JSON.stringify({ dataUrl: reader.result }) });
+        toast("Звук загружен");
+        await loadIntel();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+  $("#intelTestSound").onclick = () => playIntelSound(true);
+  $("#intelRefresh").onclick = async () => {
+    await api("/api/intel/refresh", { method: "POST", body: "{}" });
+    await loadIntel();
+    toast("Логи перечитаны");
+  };
+  $("#intelRescanChannels").onclick = () => loadIntel();
+  $("#intelChannels").addEventListener("change", (e) => {
+    if (e.target.matches("input[data-ch]")) saveIntelChannels();
   });
 
   // --- персонажи ---

@@ -17,6 +17,7 @@
     </div>
     <nav class="tabs" id="tabs">
       <button data-tab="scan" class="active">Сканер</button>
+      <button data-tab="intel">Интель</button>
       <button data-tab="pi">Планетарка</button>
       <button data-tab="character">Персонажи</button>
       <button data-tab="settings">Настройки</button>
@@ -82,6 +83,50 @@
           <div class="empty-icon">◎</div>
           <div>Пока пусто. Нажмите «Сканировать рынок».</div>
           <div class="muted small">Первый скан качает стаканы всех выбранных хабов — это минута-две.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ИНТЕЛЬ ================= -->
+    <section id="tab-intel" class="tab">
+      <div class="panel toolbar">
+        <div class="chips" id="intelOwn"></div>
+        <div class="capture">
+          <label for="intelThreshold">Прыжков до меня ≤</label>
+          <input type="range" id="intelThreshold" min="1" max="20" step="1" value="5">
+          <span id="intelThresholdVal" class="mono">5</span>
+        </div>
+        <label class="chk"><input type="checkbox" id="intelSound" checked> писк</label>
+        <button class="btn small" id="intelSoundPick">свой звук…</button>
+        <input type="file" id="intelSoundFile" accept="audio/*" hidden>
+        <button class="btn small" id="intelTestSound">тест</button>
+        <button class="btn small" id="intelRefresh">Перечитать логи</button>
+        <div class="spacer"></div>
+        <div class="mono muted small" id="intelMeta"></div>
+      </div>
+
+      <div class="intel-grid">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Чаты</h3>
+            <button class="btn tiny" id="intelRescanChannels">обновить</button>
+          </div>
+          <div id="intelChannels" class="intel-channels"></div>
+          <div class="muted small" style="margin-top:8px" id="intelChatDir"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Сейчас рядом</h3>
+            <span class="muted small" id="intelAlertCount"></span>
+          </div>
+          <div id="intelAlerts" class="intel-list"></div>
+
+          <div class="panel-head" style="margin-top:18px">
+            <h3>Все упомянутые</h3>
+            <span class="muted small" id="intelPilotCount"></span>
+          </div>
+          <div id="intelPilots" class="intel-list"></div>
         </div>
       </div>
     </section>
