@@ -348,6 +348,11 @@ code {
   color: var(--muted); border-bottom: 1px solid var(--line2); font-weight: 600; white-space: nowrap;
 }
 .intel-table th.num { text-align: right; }
+.intel-table th { cursor: pointer; user-select: none; }
+.intel-table th:hover { color: var(--text); }
+.intel-table th.sorted { color: var(--text); }
+.intel-table th.sorted::after { content: " ▾"; color: var(--accent); }
+.intel-table th.sorted.asc::after { content: " ▴"; }
 .intel-table td { padding: 6px 8px; border-bottom: 1px solid rgba(120,165,225,.06); }
 .intel-table td.num { text-align: right; font-family: var(--mono); }
 .intel-table tr:hover { background: rgba(72,201,240,.04); }

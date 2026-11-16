@@ -20,6 +20,7 @@ const state = {
   intelTimer: null,
   intelSeen: new Set(),
   intelLoaded: false,
+  intelSort: { key: "ageSec", dir: "asc" }, // «Когда»: сверху самое новое
 };
 
 // ------------------------------------------------------------------ utils
@@ -1114,10 +1115,45 @@ function intelRow(p) {
   </tr>`;
 }
 
+const INTEL_COLS = [
+  { key: "name", label: "Пилот" },
+  { key: "ship", label: "Корабль" },
+  { key: "systemName", label: "Система" },
+  { key: "regionName", label: "Регион" },
+  { key: "jumps", label: "Прыжков", num: true },
+  { key: "nearest", label: "Мой чар" },
+  { key: "ageSec", label: "Когда" },
+];
+
+function cmpIntel(a, b) {
+  const { key, dir } = state.intelSort;
+  const mul = dir === "asc" ? 1 : -1;
+  let av = a[key];
+  let bv = b[key];
+  if (key === "jumps") {
+    av = av ?? 9999;
+    bv = bv ?? 9999;
+  }
+  if (key === "ageSec") {
+    av = av ?? 1e9;
+    bv = bv ?? 1e9;
+  }
+  if (typeof av === "string" || typeof bv === "string") {
+    return String(av ?? "").localeCompare(String(bv ?? ""), "ru") * mul;
+  }
+  return ((av ?? 0) - (bv ?? 0)) * mul;
+}
+
 function intelTable(list) {
-  return `<table class="intel-table"><thead><tr>
-      <th>Пилот</th><th>Корабль</th><th>Система</th><th>Регион</th><th class="num">Прыжков</th><th>Мой чар</th><th>Когда</th>
-    </tr></thead><tbody>${list.slice(0, 200).map(intelRow).join("")}</tbody></table>`;
+  const sorted = [...list].sort(cmpIntel);
+  return `<table class="intel-table"><thead><tr>${INTEL_COLS.map((c) => {
+    const active = state.intelSort.key === c.key;
+    const arrow = active ? (state.intelSort.dir === "asc" ? " asc" : "") : "";
+    return `<th data-isort="${c.key}" class="${c.num ? "num" : ""}${active ? " sorted" : ""}${arrow}">${c.label}</th>`;
+  }).join("")}</tr></thead><tbody>${sorted
+    .slice(0, 200)
+    .map(intelRow)
+    .join("")}</tbody></table>`;
 }
 
 function renderIntel() {
@@ -1350,6 +1386,17 @@ function bindUI() {
   $("#intelRescanChannels").onclick = () => loadIntel();
   $("#intelChannels").addEventListener("change", (e) => {
     if (e.target.matches("input[data-ch]")) saveIntelChannels();
+  });
+  $("#tab-intel").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-isort]");
+    if (!th) return;
+    const key = th.dataset.isort;
+    if (state.intelSort.key === key) {
+      state.intelSort.dir = state.intelSort.dir === "asc" ? "desc" : "asc";
+    } else {
+      state.intelSort = { key, dir: "asc" };
+    }
+    renderIntel();
   });
 
   // --- персонажи ---
