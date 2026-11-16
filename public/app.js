@@ -97,7 +97,20 @@ async function boot() {
     const params = new URLSearchParams(location.search);
     if (params.get("auth") === "ok") {
       toast("Авторизация успешна");
-      history.replaceState({}, "", "/");
+      history.replaceState({}, "", "/#pi");
+      setTab("pi");
+      // профиль догружается в фоне — обновим карточки через пару секунд
+      setTimeout(async () => {
+        try {
+          const cfg2 = await api("/api/config");
+          applyConfig(cfg2);
+          renderAuth();
+          renderCharacter();
+          await loadPi(true);
+        } catch {
+          /* ignore */
+        }
+      }, 2500);
     } else if (params.get("auth") === "error") {
       toast("Ошибка авторизации: " + (params.get("message") || ""), true);
       history.replaceState({}, "", "/");
@@ -498,7 +511,7 @@ function renderCharacter() {
         primary && primary.characterId === c.characterId ? '<span class="badge dim">основной</span>' : ""
       }</span>
         <span class="meta">${isk(c.wallet)} ISK</span>
-        <span class="meta">${c.colonies || 0} колоний</span>
+        <span class="meta">${c.pending ? "загружается…" : `${c.colonies || 0} колоний`}</span>
         <button class="btn tiny" data-primary="${c.characterId}" ${
         primary && primary.characterId === c.characterId ? "disabled" : ""
       }>сделать основным</button>
@@ -1156,6 +1169,34 @@ function bindUI() {
     }
   };
 
+  $("#btnManualLogin").onclick = async () => {
+    const url = $("#manualUrl").value.trim();
+    if (!url) return toast("Вставьте адрес обратного вызова", true);
+    try {
+      await api("/api/auth/manual", { method: "POST", body: JSON.stringify({ url }) });
+      const cfg = await api("/api/config");
+      applyConfig(cfg);
+      renderAuth();
+      renderCharacter();
+      setTab("pi");
+      await loadPi(true);
+      toast("Вход выполнен");
+    } catch (e) {
+      toast("Не удалось: " + e.message, true);
+    }
+  };
+
+  $("#btnDiagnose").onclick = async () => {
+    const out = $("#diagOut");
+    out.textContent = "проверяю…";
+    try {
+      const d = await api("/api/auth/diagnose");
+      out.textContent = JSON.stringify(d, null, 2);
+    } catch (e) {
+      out.textContent = "Ошибка: " + e.message;
+    }
+  };
+
   $("#btnAddStruct").onclick = async () => {
     const id = Number($("#structId").value.trim());
     if (!id) return toast("Введите ID структуры", true);
@@ -1198,15 +1239,17 @@ function bindUI() {
   });
 
   $("#btnRefreshChar").onclick = async () => {
+    $("#btnRefreshChar").disabled = true;
     try {
-      $("#btnRefreshChar").disabled = true;
-      await api("/api/character/refresh", { method: "POST" });
+      await api("/api/character/refresh", { method: "POST", body: "{}" });
+      toast("Обновляю данные в фоне…");
+      await new Promise((r) => setTimeout(r, 4000));
       const cfg = await api("/api/config");
       applyConfig(cfg);
       renderAuth();
       renderCharacter();
-      state.pi = null;
-      toast("Данные персонажей обновлены");
+      await loadPi(true);
+      toast("Данные обновлены");
     } catch (err) {
       toast(err.message, true);
     } finally {

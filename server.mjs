@@ -95,6 +95,27 @@ function sendText(res, status, text, type = "text/plain; charset=utf-8") {
   res.end(text);
 }
 
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function sendAuthPage(res, status, title, messageHtml, extraHtml = "") {
+  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+  <style>
+    body{background:#070a10;color:#dde7f6;font:15px/1.55 "Segoe UI",system-ui,sans-serif;padding:48px 24px;max-width:760px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 12px}
+    code{background:#121b28;border:1px solid rgba(120,165,225,.2);padding:2px 6px;border-radius:4px;font-size:13px}
+    a{color:#48c9f0}
+    .muted{color:#7f90ab}
+  </style></head><body>
+  <h1>${escapeHtml(title)}</h1>
+  <p>${messageHtml}</p>
+  ${extraHtml}
+  <p class="muted"><a href="/#settings">← вернуться в приложение</a></p>
+  </body></html>`);
+}
+
 async function readBody(req) {
   const chunks = [];
   let size = 0;
@@ -125,13 +146,37 @@ function mergedStructures() {
 }
 
 function characterList() {
-  return Object.values(characters).map((c) => ({
-    characterId: c.characterId,
-    name: c.name,
-    wallet: c.wallet,
-    colonies: (c.colonies || []).length,
-    updatedAt: c.updatedAt,
-  }));
+  const out = new Map();
+  for (const a of auth.list()) {
+    out.set(a.characterId, {
+      characterId: a.characterId,
+      name: a.name,
+      wallet: 0,
+      colonies: 0,
+      updatedAt: null,
+      pending: true,
+    });
+  }
+  for (const c of Object.values(characters)) {
+    out.set(c.characterId, {
+      characterId: c.characterId,
+      name: c.name,
+      wallet: c.wallet,
+      colonies: (c.colonies || []).length,
+      updatedAt: c.updatedAt,
+      pending: false,
+    });
+  }
+  return [...out.values()];
+}
+
+/** Догружаем профили персонажей, у которых есть токен, но нет сохранённых данных. */
+function ensureProfiles() {
+  for (const a of auth.list()) {
+    if (!characters[a.characterId]) {
+      refreshCharacter(a.characterId).catch(() => {});
+    }
+  }
 }
 
 function publicScanState() {
@@ -154,12 +199,19 @@ function sanitizeConfig(cfg) {
   return { ...cfg, clientId: cfg.clientId || "" };
 }
 
+const refreshing = new Map();
+
 async function refreshCharacter(characterId) {
-  const profile = await fetchCharacter({ esi, auth, config, characterId });
-  characters[profile.characterId] = profile;
-  saveCharacters(characters);
-  piOverview = null;
-  return profile;
+  if (refreshing.has(characterId)) return refreshing.get(characterId);
+  const promise = (async () => {
+    const profile = await fetchCharacter({ esi, auth, config, characterId });
+    characters[profile.characterId] = profile;
+    saveCharacters(characters);
+    piOverview = null;
+    return profile;
+  })().finally(() => refreshing.delete(characterId));
+  refreshing.set(characterId, promise);
+  return promise;
 }
 
 async function startScan() {
@@ -390,16 +442,32 @@ async function buildPiOverview(force = false) {
   if (piBuilding) return piBuilding;
 
   piBuilding = (async () => {
-    const allProfiles = Object.values(characters);
     const warnings = [];
-    for (const c of allProfiles) {
-      if (c.coloniesError) warnings.push(`${c.name || c.characterId}: ${c.coloniesError}`);
-    }
+    const allProfiles = [];
+
+    // берём всех авторизованных, а не только тех, у кого уже сохранён профиль
     for (const a of auth.list()) {
+      let c = characters[a.characterId];
+      if (!c) {
+        let colonies = [];
+        let coloniesError = null;
+        try {
+          colonies = await esi.get(`/characters/${a.characterId}/planets/?datasource=tranquility`, { auth: a.characterId });
+        } catch (e) {
+          coloniesError =
+            e.status === 403
+              ? "нет доступа к планетарке — нужен повторный вход (scope esi-planets.manage_planets.v1)"
+              : e.message;
+        }
+        c = { characterId: a.characterId, name: a.name, colonies, coloniesError };
+      }
+      allProfiles.push(c);
+      if (c.coloniesError) warnings.push(`${c.name || c.characterId}: ${c.coloniesError}`);
       if (!(a.scopes || []).includes("esi-planets.manage_planets.v1")) {
         warnings.push(`${a.name || a.characterId}: нет scope для планетарки — нажмите «+ персонаж» и войдите заново`);
       }
     }
+
     const profiles = allProfiles.filter((c) => Array.isArray(c.colonies) && c.colonies.length);
     const layouts = piCache.layouts;
     const ids = new Set();
@@ -533,19 +601,34 @@ const server = http.createServer(async (req, res) => {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       const err = url.searchParams.get("error");
+      console.log(`[auth] callback: code=${code ? "yes" : "no"} state=${(state || "").slice(0, 6)} error=${err || "-"}`);
       if (err || !code) {
-        res.writeHead(302, { Location: `/?auth=error&message=${encodeURIComponent(err || "Нет кода авторизации")}` });
-        res.end();
+        sendAuthPage(
+          res,
+          400,
+          "Вход не завершён",
+          `EVE вернула ошибку: <code>${escapeHtml(err || "нет кода авторизации")}</code>.`,
+          `<p>Попробуйте войти ещё раз из приложения.</p>`
+        );
         return;
       }
       try {
         const { characterId } = await auth.finishLogin(code, state);
-        await refreshCharacter(characterId);
-        res.writeHead(302, { Location: "/?auth=ok#pi" });
+        console.log(`[auth] callback: ok, character ${characterId}`);
+        // Отвечаем сразу, не дожидаясь тяжёлой загрузки профиля (ассеты/ордера/структуры).
+        res.writeHead(302, { Location: `/?auth=ok&char=${characterId}#pi` });
         res.end();
+        refreshCharacter(characterId).catch((e) => console.log(`[auth] profile load failed: ${e.message}`));
       } catch (e) {
-        res.writeHead(302, { Location: `/?auth=error&message=${encodeURIComponent(e.message)}` });
-        res.end();
+        console.log(`[auth] callback error: ${e.message}`);
+        sendAuthPage(
+          res,
+          400,
+          "Не удалось завершить вход",
+          `${escapeHtml(e.message)}`,
+          `<p>Если страница выбора персонажа зависала — попробуйте ещё раз в режиме инкогнито
+           или вставьте адрес из строки браузера в поле «Ручной вход» в настройках приложения.</p>`
+        );
       }
       return;
     }
@@ -557,6 +640,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/config" && req.method === "GET") {
+      ensureProfiles();
       sendJson(req, res, 200, {
         config: sanitizeConfig(config),
         hubs: HUBS,
@@ -602,12 +686,73 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/auth/login" && req.method === "GET") {
       try {
         const target = await auth.loginUrl();
+        const state = new URL(target).searchParams.get("state") || "";
+        console.log(`[auth] login start state=${state.slice(0, 6)} pending=${auth.pendingCount()}`);
         res.writeHead(302, { Location: target });
         res.end();
       } catch (e) {
-        res.writeHead(302, { Location: `/?auth=error&message=${encodeURIComponent(e.message)}` });
-        res.end();
+        sendAuthPage(res, 500, "Не удалось начать вход", escapeHtml(e.message));
       }
+      return;
+    }
+
+    if (pathname === "/api/auth/manual" && req.method === "POST") {
+      const body = await readBody(req);
+      let code = null;
+      let state = null;
+      try {
+        const u = new URL(String(body.url || "").trim());
+        code = u.searchParams.get("code");
+        state = u.searchParams.get("state");
+      } catch {
+        /* ниже вернём ошибку */
+      }
+      if (!code || !state) {
+        sendJson(req, res, 400, {
+          error: "В ссылке нет code/state. Скопируйте адрес целиком из строки браузера после входа.",
+        });
+        return;
+      }
+      try {
+        const { characterId } = await auth.finishLogin(code, state);
+        sendJson(req, res, 200, { ok: true, characterId });
+        refreshCharacter(characterId).catch((e) => console.log(`[auth] profile load failed: ${e.message}`));
+      } catch (e) {
+        sendJson(req, res, 400, { error: e.message });
+      }
+      return;
+    }
+
+    if (pathname === "/api/auth/diagnose" && req.method === "GET") {
+      const t0 = Date.now();
+      let sso;
+      try {
+        const meta = await auth.metadata();
+        sso = {
+          ok: true,
+          ms: Date.now() - t0,
+          authorization_endpoint: meta.authorization_endpoint,
+          token_endpoint: meta.token_endpoint,
+        };
+      } catch (e) {
+        sso = { ok: false, ms: Date.now() - t0, error: e.message };
+      }
+      sendJson(req, res, 200, {
+        clientIdSet: auth.isConfigured(),
+        clientIdLength: auth.clientId().length,
+        callbackUrl: auth.redirectUri(),
+        expectedCallback: `http://${host}:${port}/callback`,
+        callbackMatches: auth.redirectUri() === `http://${host}:${port}/callback`,
+        pending: auth.pendingCount(),
+        characters: auth.list().map((c) => ({
+          characterId: c.characterId,
+          name: c.name,
+          scopes: (c.scopes || []).length,
+          planets: (c.scopes || []).includes("esi-planets.manage_planets.v1"),
+        })),
+        sso,
+        now: new Date().toISOString(),
+      });
       return;
     }
 
@@ -641,15 +786,10 @@ const server = http.createServer(async (req, res) => {
         sendJson(req, res, 401, { error: "Нет авторизации" });
         return;
       }
-      const updated = [];
       for (const id of ids) {
-        try {
-          updated.push(await refreshCharacter(id));
-        } catch (e) {
-          /* пропускаем персонажа с ошибкой */
-        }
+        refreshCharacter(id).catch((e) => console.log(`[character] refresh ${id} failed: ${e.message}`));
       }
-      sendJson(req, res, 200, { ok: true, characters: updated.map((c) => ({ characterId: c.characterId, name: c.name })) });
+      sendJson(req, res, 202, { ok: true, started: ids.length });
       return;
     }
 
@@ -686,6 +826,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/pi/overview" && req.method === "GET") {
       const force = url.searchParams.get("refresh") === "1";
+      ensureProfiles();
       const data = await buildPiOverview(force);
       sendJson(req, res, 200, data);
       return;

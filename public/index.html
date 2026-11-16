@@ -205,6 +205,25 @@
       </div>
 
       <div class="panel">
+        <h3>Если вход зависает</h3>
+        <p class="muted small">
+          Страница выбора персонажа — сторона CCP. Если она зависает: попробуйте режим инкогнито,
+          отключите блокировщики рекламы, проверьте VPN/IPv6. Если браузер не может достучаться
+          до локального адреса — вставьте сюда адрес из строки браузера после входа, приложение
+          само обменяет код.
+        </p>
+        <div class="formrow">
+          <input id="manualUrl" class="wide" placeholder="http://127.0.0.1:8787/callback?code=...&amp;state=...">
+          <button class="btn" id="btnManualLogin">Завершить вход</button>
+        </div>
+        <div class="formrow">
+          <button class="btn small" id="btnDiagnose">Проверить SSO</button>
+          <span class="muted small">clientId, callback, доступность login.eveonline.com</span>
+        </div>
+        <pre id="diagOut" class="mono small muted" style="white-space:pre-wrap;margin:8px 0 0"></pre>
+      </div>
+
+      <div class="panel">
         <h3>Структуры для сканирования</h3>
         <p class="muted small">
           Структуры находятся автоматически по вашим ордерам и ассетам. Можно добавить вручную по ID —
