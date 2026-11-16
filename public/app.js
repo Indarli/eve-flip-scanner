@@ -1095,9 +1095,11 @@ function checkIntelAlerts(alerts) {
 function intelRow(p) {
   const j = p.jumps;
   const cls = j === null || j === undefined ? "jx" : j === 0 ? "j0" : j === 1 ? "j1" : j === 2 ? "j2" : "j3";
-  const name = p.zkb
-    ? `<a href="${p.zkb}" target="_blank" rel="noreferrer">${esc(p.name)}</a>`
-    : esc(p.name);
+  const list = p.names && p.names.length ? p.names : [{ name: p.name, zkb: p.zkb }];
+  const names = list
+    .map((n) => (n.zkb ? `<a href="${n.zkb}" target="_blank" rel="noreferrer">${esc(n.name)}</a>` : esc(n.name)))
+    .join(", ");
+  const extra = p.extra ? `<div class="intel-extra">+${p.extra}</div>` : "";
   const sys = p.systemName
     ? `<a href="https://evemaps.dotlan.net/system/${encodeURIComponent(p.systemName)}" target="_blank" rel="noreferrer">${esc(
         p.systemName
@@ -1105,7 +1107,7 @@ function intelRow(p) {
     : `<span class="muted">—</span>`;
   const ship = p.ship ? esc(p.ship) : `<span class="muted">—</span>`;
   return `<tr>
-    <td>${name}</td>
+    <td><div class="intel-names">${names}</div>${extra}</td>
     <td class="ship">${ship}</td>
     <td>${sys}</td>
     <td class="age">${p.regionName ? esc(p.regionName) : "—"}</td>
@@ -1130,6 +1132,10 @@ function cmpIntel(a, b) {
   const mul = dir === "asc" ? 1 : -1;
   let av = a[key];
   let bv = b[key];
+  if (key === "name") {
+    av = a.names?.[0]?.name || "";
+    bv = b.names?.[0]?.name || "";
+  }
   if (key === "jumps") {
     av = av ?? 9999;
     bv = bv ?? 9999;
@@ -1205,13 +1211,14 @@ function renderIntel() {
     : `<div class="intel-empty">Логи не найдены. Проверьте папку Chatlogs.</div>`;
 
   const alerts = d.alerts || [];
-  $("#intelAlertCount").textContent = `${alerts.length} в радиусе ${d.threshold}`;
+  const countNames = (list) => list.reduce((a, r) => a + (r.names?.length || 1) + (r.extra || 0), 0);
+  $("#intelAlertCount").textContent = `${alerts.length} событий · ${countNames(alerts)} пилотов · радиус ${d.threshold}`;
   $("#intelAlerts").innerHTML = alerts.length
     ? intelTable(alerts)
     : `<div class="intel-empty">Пока никого рядом. Выберите чаты слева и дождитесь сообщений.</div>`;
 
   const pilots = d.pilots || [];
-  $("#intelPilotCount").textContent = `${pilots.length}`;
+  $("#intelPilotCount").textContent = `${pilots.length} событий`;
   $("#intelPilots").innerHTML = pilots.length ? intelTable(pilots) : `<div class="intel-empty">Нет упоминаний.</div>`;
 
   checkIntelAlerts(alerts);

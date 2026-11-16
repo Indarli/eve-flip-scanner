@@ -359,6 +359,8 @@ code {
 .intel-table a { color: var(--text); }
 .intel-table a:hover { color: var(--accent); }
 .intel-table .ship { color: var(--muted); }
+.intel-names { max-width: 420px; white-space: normal; line-height: 1.35; }
+.intel-extra { color: var(--warn); font-family: var(--mono); font-size: 11px; margin-top: 2px; }
 .intel-table .age { color: var(--muted); font-size: 12px; }
 
 .jumps { display: inline-block; min-width: 30px; text-align: center; padding: 2px 7px; border-radius: 5px; font-family: var(--mono); font-size: 12px; }
