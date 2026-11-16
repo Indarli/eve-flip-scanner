@@ -290,8 +290,14 @@ function findLocation(locationId) {
   return null;
 }
 
-function levelsFromOrders(orders) {
-  const buy = [];
+async function regionOfSystem(systemId) {
+  const sys = await esi.get(`/universe/systems/${systemId}/`).catch(() => null);
+  if (!sys?.constellation_id) return null;
+  const cons = await esi.get(`/universe/constellations/${sys.constellation_id}/`).catch(() => null);
+  return cons?.region_id ?? null;
+}
+
+function levelsFromOrders(orders) {  const buy = [];
   const sell = [];
   for (const o of orders) {
     const side = o.is_buy_order ? buy : sell;
@@ -926,11 +932,11 @@ const server = http.createServer(async (req, res) => {
         sendJson(req, res, 404, { error: "Структура не найдена или нет прав доступа. Можно добавить принудительно (force)." });
         return;
       }
-      const system = info ? await esi.get(`/universe/systems/${info.solar_system_id}/`).catch(() => null) : null;
+      const regionId = info ? await regionOfSystem(info.solar_system_id) : null;
       const entry = {
         id,
         name: info?.name || body.name || `Structure ${id}`,
-        regionId: system?.region_id ?? null,
+        regionId,
         tax: body.tax !== undefined ? Math.min(0.1, Math.max(0, Number(body.tax) || 0)) : config.defaultStructureTax,
       };
       if (!config.structures.some((s) => Number(s.id) === id)) config.structures.push(entry);

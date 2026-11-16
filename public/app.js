@@ -1107,6 +1107,7 @@ function intelRow(p) {
     <td>${name}</td>
     <td class="ship">${ship}</td>
     <td>${sys}</td>
+    <td class="age">${p.regionName ? esc(p.regionName) : "—"}</td>
     <td class="num"><span class="jumps ${cls}">${j === null || j === undefined ? "?" : j}</span></td>
     <td class="age">${p.nearest ? esc(p.nearest) : "—"}</td>
     <td class="age">${fmtAge(p.ageSec)}</td>
@@ -1115,7 +1116,7 @@ function intelRow(p) {
 
 function intelTable(list) {
   return `<table class="intel-table"><thead><tr>
-      <th>Пилот</th><th>Корабль</th><th>Система</th><th class="num">Прыжков</th><th>Мой чар</th><th>Когда</th>
+      <th>Пилот</th><th>Корабль</th><th>Система</th><th>Регион</th><th class="num">Прыжков</th><th>Мой чар</th><th>Когда</th>
     </tr></thead><tbody>${list.slice(0, 80).map(intelRow).join("")}</tbody></table>`;
 }
 
