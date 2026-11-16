@@ -271,3 +271,60 @@ code {
   .grid2 { grid-template-columns: 1fr; }
   .topbar { flex-wrap: wrap; gap: 10px; }
 }
+
+/* ---------------- планетарка ---------------- */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(120,165,225,.08); border: 1px solid var(--line);
+  color: var(--muted); border-radius: 999px; padding: 4px 10px;
+  font-size: 12px; cursor: pointer;
+}
+.chip.active { color: var(--text); border-color: rgba(72,201,240,.45); background: rgba(72,201,240,.12); }
+.chip .count { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+.pi-tablewrap { max-height: 46vh; }
+.pi-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pi-table th {
+  position: sticky; top: 0; background: #0d141e; z-index: 2;
+  text-align: right; padding: 8px 10px; font-size: 11px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line2); white-space: nowrap;
+}
+.pi-table th.left { text-align: left; }
+.pi-table td { padding: 7px 10px; border-bottom: 1px solid rgba(120,165,225,.06); }
+.pi-table tr { cursor: pointer; }
+.pi-table tbody tr:hover { background: rgba(72,201,240,.05); }
+.pi-table .planet-name { font-weight: 500; }
+.pi-table .planet-sub { color: var(--muted); font-size: 11px; }
+
+.status { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.status.ok { background: rgba(56,214,139,.12); color: var(--good); }
+.status.soon { background: rgba(240,178,74,.12); color: var(--warn); }
+.status.critical { background: rgba(255,140,60,.15); color: #ff9f43; }
+.status.expired { background: rgba(255,96,115,.15); color: var(--bad); }
+.status.unknown { background: rgba(120,165,225,.08); color: var(--muted); }
+
+.pi-queue { display: flex; flex-direction: column; gap: 6px; }
+.pi-row {
+  display: grid; grid-template-columns: 26px 1fr auto auto auto; gap: 12px; align-items: center;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(7,11,17,.45);
+}
+.pi-row.done { opacity: .45; }
+.pi-row .name { font-weight: 500; }
+.pi-row .sub { color: var(--muted); font-size: 12px; }
+.pi-row .countdown { font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; }
+.pi-row input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.pi-row .btn { white-space: nowrap; }
+
+.planet-canvas { width: 100%; height: 360px; display: block; border-radius: 12px; background: radial-gradient(circle at 50% 45%, #0c1622, #05080d 70%); cursor: crosshair; }
+.planet-wrap { border: 1px solid var(--line); border-radius: 12px; padding: 8px; background: rgba(7,11,17,.4); }
+.pin-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 8px; }
+.pin-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; vertical-align: middle; }
+
+.colony-tooltip {
+  position: fixed; z-index: 95; pointer-events: none;
+  background: #101a27; border: 1px solid var(--line2); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; max-width: 280px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}
+.colony-tooltip .t { color: var(--text); font-weight: 600; }
+.colony-tooltip .m { color: var(--muted); font-size: 11px; }

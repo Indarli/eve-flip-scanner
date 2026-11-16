@@ -13,17 +13,15 @@
     <div class="brand">
       <span class="logo">◆</span>
       <span>EVE <b>FLIP</b></span>
-      <span class="tag">market scanner</span>
+      <span class="tag">market &amp; colonies</span>
     </div>
     <nav class="tabs" id="tabs">
       <button data-tab="scan" class="active">Сканер</button>
-      <button data-tab="character">Персонаж</button>
+      <button data-tab="pi">Планетарка</button>
+      <button data-tab="character">Персонажи</button>
       <button data-tab="settings">Настройки</button>
     </nav>
-    <div class="authbox" id="authbox">
-      <span class="muted">не авторизован</span>
-      <button class="btn small" id="btnLogin">Войти через EVE</button>
-    </div>
+    <div class="authbox" id="authbox"></div>
   </header>
 
   <main>
@@ -88,53 +86,94 @@
       </div>
     </section>
 
-    <!-- ================= ПЕРСОНАЖ ================= -->
-    <section id="tab-character" class="tab">
-      <div id="charEmpty" class="panel empty">
-        <div class="empty-icon">⚉</div>
-        <div>Нет данных персонажа.</div>
-        <div class="muted small">Настройте Client ID и войдите через EVE SSO — подтянутся кошелёк, скиллы, стендинги и структуры.</div>
+    <!-- ================= ПЛАНЕТАРКА ================= -->
+    <section id="tab-pi" class="tab">
+      <div class="panel toolbar">
+        <div class="chips" id="piChars"></div>
+        <button class="btn small" id="btnAddChar">+ персонаж</button>
+        <button class="btn small" id="btnPiRefresh">Обновить</button>
+        <label class="chk" title="Браузерные уведомления, когда экстрактор скоро остановится">
+          <input type="checkbox" id="piNotify"> уведомления
+        </label>
+        <div class="spacer"></div>
+        <div class="mono muted small" id="piMeta"></div>
       </div>
-      <div id="charContent" hidden>
-        <div class="cards">
-          <div class="card">
-            <div class="card-label">Персонаж</div>
-            <div class="card-value" id="cName">—</div>
-            <div class="muted small mono" id="cId"></div>
-          </div>
-          <div class="card">
-            <div class="card-label">Кошелёк</div>
-            <div class="card-value mono" id="cWallet">—</div>
-            <div class="muted small">доступный капитал</div>
-          </div>
-          <div class="card">
-            <div class="card-label">Слоты ордеров</div>
-            <div class="card-value mono" id="cSlots">—</div>
-            <div class="muted small" id="cSlotsSub"></div>
-          </div>
-          <div class="card">
-            <div class="card-label">Налог / брокер</div>
-            <div class="card-value mono" id="cFees">—</div>
-            <div class="muted small">Accounting / Broker Relations</div>
-          </div>
-        </div>
 
-        <div class="grid2">
-          <div class="panel">
-            <h3>Навыки торговли</h3>
-            <table class="mini" id="skillTable"></table>
-          </div>
-          <div class="panel">
-            <h3>Комиссии по хабам</h3>
-            <table class="mini" id="hubFeeTable"></table>
+      <div id="piEmpty" class="panel empty">
+        <div class="empty-icon">◍</div>
+        <div>Нет колоний для показа.</div>
+        <div class="muted small">
+          Войдите через EVE (кнопка справа сверху), чтобы подтянуть колонии, экстракторы и таймеры.
+          Можно добавить несколько персонажей.
+        </div>
+      </div>
+
+      <div id="piContent" hidden>
+        <div class="cards" id="piCards"></div>
+
+        <div class="panel">
+          <h3>Колонии</h3>
+          <div class="tablewrap pi-tablewrap">
+            <table class="pi-table" id="piTable">
+              <thead>
+                <tr>
+                  <th class="left">Планета</th>
+                  <th class="left">Тип</th>
+                  <th class="left">Система</th>
+                  <th class="left">Персонаж</th>
+                  <th class="num">Экстр.</th>
+                  <th class="num">Ближайший</th>
+                  <th class="num">шт/час</th>
+                  <th class="num">ISK/час</th>
+                  <th class="left">Статус</th>
+                </tr>
+              </thead>
+              <tbody id="piTableBody"></tbody>
+            </table>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-head">
-            <h3>Структуры с доступом</h3>
-            <button class="btn small" id="btnRefreshChar">Обновить данные</button>
+            <h3>Пора перезапускать</h3>
+            <span class="muted small">ESI не умеет перезапускать — только показывает очередь</span>
           </div>
+          <div id="piQueue" class="pi-queue"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ПЕРСОНАЖИ ================= -->
+    <section id="tab-character" class="tab">
+      <div id="charEmpty" class="panel empty">
+        <div class="empty-icon">⚉</div>
+        <div>Нет данных персонажей.</div>
+        <div class="muted small">Настройте Client ID и войдите через EVE SSO — подтянутся кошелёк, скиллы, стендинги, структуры и колонии.</div>
+      </div>
+      <div id="charContent" hidden>
+        <div class="cards" id="charCards"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Персонажи</h3>
+            <div>
+              <button class="btn small" id="btnAddChar2">+ персонаж</button>
+              <button class="btn small" id="btnRefreshChar">Обновить данные</button>
+            </div>
+          </div>
+          <div id="charList" class="structures"></div>
+        </div>
+        <div class="grid2">
+          <div class="panel">
+            <h3>Навыки торговли (основной)</h3>
+            <table class="mini" id="skillTable"></table>
+          </div>
+          <div class="panel">
+            <h3>Комиссии по хабам (основной)</h3>
+            <table class="mini" id="hubFeeTable"></table>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Структуры с доступом</h3>
           <div id="structureList" class="structures"></div>
         </div>
       </div>
@@ -145,7 +184,7 @@
       <div class="panel">
         <h3>Приложение EVE SSO</h3>
         <p class="muted">
-          Для доступа к ордерам, кошельку, скиллам и структурам нужно зарегистрировать локальное приложение.
+          Для доступа к ордерам, кошельку, скиллам, структурам и колониям нужно зарегистрировать локальное приложение.
           Это бесплатно и делается один раз.
         </p>
         <ol class="steps">
@@ -192,7 +231,7 @@
         </div>
         <div class="formrow">
           <label>Мин. объём, шт/день</label>
-          <input id="defVolume" type="number" value="20" class="narrow">
+          <input id="defVolume" type="number" value="10" class="narrow">
         </div>
         <button class="btn" id="btnSaveCalc">Сохранить</button>
       </div>

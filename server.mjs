@@ -11,25 +11,39 @@ import {
   initDirs,
   loadConfig,
   saveConfig,
-  loadCharacter,
-  saveCharacter,
+  loadCharacters,
+  saveCharacters,
   loadResults,
   saveResults,
+  loadPiCache,
+  savePiCache,
+  loadNames,
+  saveNames,
 } from "./lib/store.mjs";
 import { EsiClient } from "./lib/esi.mjs";
 import { Auth } from "./lib/auth.mjs";
-import { loadCharacter as fetchCharacter, emptyCharacterSummary, defaultFees } from "./lib/character.mjs";
+import { loadCharacter as fetchCharacter, defaultFees } from "./lib/character.mjs";
 import { runScan } from "./lib/scan.mjs";
+import { analyzeColony, summarizePi } from "./lib/pi.mjs";
 
 initDirs();
 
 let config = loadConfig();
 const auth = new Auth({ getConfig: () => config });
-const esi = new EsiClient({ cacheDir: CACHE_DIR, getToken: () => auth.token() });
+const esi = new EsiClient({ cacheDir: CACHE_DIR, getToken: (id) => auth.tokenFor(id) });
 
-let character = loadCharacter();
+let characters = loadCharacters();
 let currentResults = loadResults();
 let lastBooks = new Map();
+
+const piCache = loadPiCache() || { layouts: {}, schematics: {} };
+if (!piCache.layouts) piCache.layouts = {};
+if (!piCache.schematics) piCache.schematics = {};
+let namesCache = loadNames();
+let piOverview = null;
+let piBuilding = null;
+let priceCache = { ts: 0, map: new Map() };
+
 let scanState = {
   running: false,
   phase: "idle",
@@ -97,11 +111,31 @@ async function readBody(req) {
   }
 }
 
+function primaryCharacter() {
+  if (config.primaryCharacterId && characters[config.primaryCharacterId]) return characters[config.primaryCharacterId];
+  return Object.values(characters)[0] || null;
+}
+
+function mergedStructures() {
+  const map = new Map();
+  for (const c of Object.values(characters)) {
+    for (const s of c.structures || []) map.set(Number(s.id), s);
+  }
+  return [...map.values()];
+}
+
+function characterList() {
+  return Object.values(characters).map((c) => ({
+    characterId: c.characterId,
+    name: c.name,
+    wallet: c.wallet,
+    colonies: (c.colonies || []).length,
+    updatedAt: c.updatedAt,
+  }));
+}
+
 function publicScanState() {
-  return {
-    ...scanState,
-    eta: estimateEta(scanState),
-  };
+  return { ...scanState, eta: estimateEta(scanState) };
 }
 
 function estimateEta(s) {
@@ -117,10 +151,15 @@ function estimateEta(s) {
 }
 
 function sanitizeConfig(cfg) {
-  return {
-    ...cfg,
-    clientId: cfg.clientId || "",
-  };
+  return { ...cfg, clientId: cfg.clientId || "" };
+}
+
+async function refreshCharacter(characterId) {
+  const profile = await fetchCharacter({ esi, auth, config, characterId });
+  characters[profile.characterId] = profile;
+  saveCharacters(characters);
+  piOverview = null;
+  return profile;
 }
 
 async function startScan() {
@@ -147,7 +186,8 @@ async function startScan() {
   };
 
   const jobConfig = JSON.parse(JSON.stringify(config));
-  const jobCharacter = character;
+  const primary = primaryCharacter();
+  const jobCharacter = primary ? { ...primary, structures: mergedStructures() } : null;
 
   runScan({
     esi,
@@ -186,7 +226,7 @@ function findLocation(locationId) {
   const id = Number(locationId);
   const hub = HUBS.find((h) => h.stationId === id);
   if (hub) return { id, name: hub.name, kind: "npc", regionId: hub.regionId };
-  const st = (character?.structures || []).find((s) => Number(s.id) === id);
+  const st = mergedStructures().find((s) => Number(s.id) === id);
   if (st) return { id, name: st.name, kind: "structure", regionId: st.regionId, tax: st.tax };
   const cfgSt = (config.structures || []).find((s) => Number(s.id) === id);
   if (cfgSt) return { id, name: cfgSt.name || `Structure ${id}`, kind: "structure", regionId: cfgSt.regionId, tax: cfgSt.tax };
@@ -217,7 +257,6 @@ async function itemDetail(typeId, locationId) {
   if (!loc) throw Object.assign(new Error("Локация не найдена"), { status: 404 });
   if (!loc.regionId) throw Object.assign(new Error("Неизвестный регион структуры"), { status: 400 });
 
-  // Стакан берём из последнего скана (там есть и структуры), иначе — живьём из ESI.
   const cachedBook = lastBooks.get(`${typeId}:${loc.id}`);
   let levels;
   if (cachedBook) {
@@ -241,11 +280,12 @@ async function itemDetail(typeId, locationId) {
     group = await esi.get(`/universe/groups/${typeInfo.group_id}/`).catch(() => null);
   }
 
+  const primary = primaryCharacter();
   const fee = loc.kind === "structure"
-    ? { tax: character?.fees?.tax ?? defaultFees().tax, broker: 0.005 + (loc.tax ?? config.defaultStructureTax ?? 0.01) }
+    ? { tax: primary?.fees?.tax ?? defaultFees().tax, broker: 0.005 + (loc.tax ?? config.defaultStructureTax ?? 0.01) }
     : (() => {
-        const hubFee = Object.values(character?.fees?.hubs || {}).find((h) => h.stationId === loc.id);
-        return { tax: character?.fees?.tax ?? defaultFees().tax, broker: hubFee?.broker ?? defaultFees().broker };
+        const hubFee = Object.values(primary?.fees?.hubs || {}).find((h) => h.stationId === loc.id);
+        return { tax: primary?.fees?.tax ?? defaultFees().tax, broker: hubFee?.broker ?? defaultFees().broker };
       })();
 
   return {
@@ -265,6 +305,198 @@ async function itemDetail(typeId, locationId) {
     history: (Array.isArray(history) ? history : []).slice(-180),
     fees: fee,
   };
+}
+
+// ---------------------------------------------------------------- PI
+
+async function resolveNames(ids) {
+  const missing = [...new Set(ids.map(Number).filter(Boolean))].filter((id) => !namesCache[id]);
+
+  // /universe/names/ отдаёт 404 на весь батч, если хотя бы один id невалиден,
+  // поэтому при ошибке дробим запрос пополам вплоть до одного id.
+  async function fetchChunk(chunk) {
+    if (!chunk.length) return;
+    try {
+      const res = await esi.post("/universe/names/?datasource=tranquility", chunk);
+      for (const n of res || []) namesCache[n.id] = { name: n.name, category: n.category };
+    } catch {
+      if (chunk.length <= 1) return;
+      const mid = Math.ceil(chunk.length / 2);
+      await fetchChunk(chunk.slice(0, mid));
+      await fetchChunk(chunk.slice(mid));
+    }
+  }
+
+  for (let i = 0; i < missing.length; i += 900) {
+    await fetchChunk(missing.slice(i, i + 900));
+  }
+  if (missing.length) saveNames(namesCache);
+
+  const map = new Map();
+  for (const id of ids) {
+    const v = namesCache[Number(id)];
+    if (v) map.set(Number(id), v);
+  }
+  return map;
+}
+
+async function resolveSchematics(ids) {
+  for (const id of ids) {
+    if (!id || piCache.schematics[id]) continue;
+    try {
+      piCache.schematics[id] = await esi.get(`/universe/schematics/${id}/?datasource=tranquility`);
+    } catch {
+      /* ignore */
+    }
+  }
+  savePiCache(piCache);
+  return new Map(Object.entries(piCache.schematics).map(([k, v]) => [Number(k), v]));
+}
+
+async function getPiPrices(typeIds) {
+  const out = new Map();
+  const fromScan = new Map((currentResults?.rows || []).map((r) => [r.typeId, { bid: r.bid, ask: r.ask }]));
+  const missing = [];
+
+  for (const id of typeIds) {
+    const cached = priceCache.ts && Date.now() - priceCache.ts < 5 * 60_000 ? priceCache.map.get(id) : null;
+    if (cached) out.set(id, cached);
+    else if (fromScan.has(id)) out.set(id, fromScan.get(id));
+    else missing.push(id);
+  }
+
+  if (missing.length) {
+    try {
+      const url = `https://market.fuzzwork.co.uk/aggregates/?region=10000002&types=${missing.join(",")}`;
+      const res = await fetch(url, { headers: { "User-Agent": "EVE-Flip-Scanner/1.0" } });
+      if (res.ok) {
+        const data = await res.json();
+        for (const [idStr, v] of Object.entries(data || {})) {
+          const value = { bid: Number(v?.buy?.max) || 0, ask: Number(v?.sell?.min) || 0 };
+          priceCache.map.set(Number(idStr), value);
+          out.set(Number(idStr), value);
+        }
+        priceCache.ts = Date.now();
+      }
+    } catch {
+      /* без цен показываем нули */
+    }
+  }
+  return out;
+}
+
+async function buildPiOverview(force = false) {
+  if (!force && piOverview && Date.now() - piOverview.generatedAt < 5 * 60_000) return piOverview;
+  if (piBuilding) return piBuilding;
+
+  piBuilding = (async () => {
+    const allProfiles = Object.values(characters);
+    const warnings = [];
+    for (const c of allProfiles) {
+      if (c.coloniesError) warnings.push(`${c.name || c.characterId}: ${c.coloniesError}`);
+    }
+    for (const a of auth.list()) {
+      if (!(a.scopes || []).includes("esi-planets.manage_planets.v1")) {
+        warnings.push(`${a.name || a.characterId}: нет scope для планетарки — нажмите «+ персонаж» и войдите заново`);
+      }
+    }
+    const profiles = allProfiles.filter((c) => Array.isArray(c.colonies) && c.colonies.length);
+    const layouts = piCache.layouts;
+    const ids = new Set();
+
+    for (const c of profiles) {
+      for (const col of c.colonies) {
+        const key = `${c.characterId}:${col.planet_id}`;
+        let entry = layouts[key];
+        if (!entry || force || Date.now() - entry.ts > 10 * 60_000) {
+          try {
+            const layout = await esi.get(`/characters/${c.characterId}/planets/${col.planet_id}/?datasource=tranquility`, {
+              auth: c.characterId,
+            });
+            entry = { ts: Date.now(), layout };
+          } catch (err) {
+            entry = entry || { ts: 0, layout: null, error: err.message };
+          }
+          layouts[key] = entry;
+        }
+        for (const p of entry.layout?.pins || []) {
+          if (p.type_id) ids.add(p.type_id);
+          if (p.extractor_details?.product_type_id) ids.add(p.extractor_details.product_type_id);
+          for (const ct of p.contents || []) if (ct.type_id) ids.add(ct.type_id);
+        }
+        ids.add(col.planet_id);
+        ids.add(col.solar_system_id);
+      }
+    }
+    savePiCache(piCache);
+
+    const names = await resolveNames([...ids]);
+
+    // имена планет могли не прийти из /names — добираем точечно
+    for (const c of profiles) {
+      for (const col of c.colonies) {
+        if (names.has(Number(col.planet_id))) continue;
+        try {
+          const p = await esi.get(`/universe/planets/${col.planet_id}/`);
+          names.set(Number(col.planet_id), { name: p.name, category: "planet" });
+          namesCache[col.planet_id] = { name: p.name, category: "planet" };
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    saveNames(namesCache);
+
+    const schematicIds = new Set();
+    for (const c of profiles) {
+      for (const col of c.colonies) {
+        const entry = layouts[`${c.characterId}:${col.planet_id}`];
+        for (const p of entry?.layout?.pins || []) {
+          if (p.schematic_id) schematicIds.add(p.schematic_id);
+        }
+      }
+    }
+    const schematics = await resolveSchematics([...schematicIds]);
+    const prices = await getPiPrices(ids);
+
+    const colonies = [];
+    for (const c of profiles) {
+      for (const col of c.colonies) {
+        const entry = layouts[`${c.characterId}:${col.planet_id}`];
+        if (!entry?.layout) continue;
+        colonies.push(
+          analyzeColony({
+            colony: col,
+            layout: entry.layout,
+            names,
+            schematics,
+            prices,
+            characterId: c.characterId,
+            characterName: c.name,
+            now: Date.now(),
+          })
+        );
+      }
+    }
+
+    const { totals, queue } = summarizePi(colonies);
+    piOverview = {
+      generatedAt: Date.now(),
+      characters: profiles.map((c) => ({ characterId: c.characterId, name: c.name })),
+      colonies,
+      totals,
+      queue,
+      warnings,
+      errors: Object.entries(layouts)
+        .filter(([, v]) => v.error)
+        .map(([k, v]) => `${k}: ${v.error}`),
+    };
+    return piOverview;
+  })().finally(() => {
+    piBuilding = null;
+  });
+
+  return piBuilding;
 }
 
 // ---------------------------------------------------------------- server
@@ -307,10 +539,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
-        await auth.finishLogin(code, state);
-        character = await fetchCharacter({ esi, auth, config });
-        saveCharacter(character);
-        res.writeHead(302, { Location: "/?auth=ok" });
+        const { characterId } = await auth.finishLogin(code, state);
+        await refreshCharacter(characterId);
+        res.writeHead(302, { Location: "/?auth=ok#pi" });
         res.end();
       } catch (e) {
         res.writeHead(302, { Location: `/?auth=error&message=${encodeURIComponent(e.message)}` });
@@ -330,11 +561,12 @@ const server = http.createServer(async (req, res) => {
         config: sanitizeConfig(config),
         hubs: HUBS,
         auth: auth.status(),
-        character: character || null,
+        characters: characterList(),
+        character: primaryCharacter(),
         scan: publicScanState(),
         resultsCount: currentResults?.rows?.length || 0,
         resultsMeta: currentResults?.meta || null,
-        fees: character?.fees || { source: "default", tax: defaultFees().tax, broker: defaultFees().broker, hubs: {} },
+        fees: primaryCharacter()?.fees || { source: "default", tax: defaultFees().tax, broker: defaultFees().broker, hubs: {} },
         esiStats: esi.stats,
       });
       return;
@@ -349,8 +581,10 @@ const server = http.createServer(async (req, res) => {
         capture: body.capture !== undefined ? Math.min(1, Math.max(0.05, Number(body.capture) || 0.5)) : config.capture,
         historyBudget:
           body.historyBudget !== undefined
-            ? Math.min(1000, Math.max(20, Number(body.historyBudget) || 200))
+            ? Math.min(1000, Math.max(20, Number(body.historyBudget) || 250))
             : config.historyBudget,
+        primaryCharacterId:
+          body.primaryCharacterId && characters[body.primaryCharacterId] ? Number(body.primaryCharacterId) : config.primaryCharacterId,
         hubs: { ...config.hubs, ...(body.hubs || {}) },
         filters: { ...config.filters, ...(body.filters || {}) },
         structures: Array.isArray(body.structures) ? body.structures : config.structures,
@@ -378,26 +612,44 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/auth/logout" && req.method === "POST") {
-      auth.logout();
-      character = null;
-      saveCharacter(null);
+      const body = await readBody(req).catch(() => ({}));
+      if (body.characterId) {
+        auth.remove(Number(body.characterId));
+        delete characters[body.characterId];
+      } else {
+        for (const id of Object.keys(characters)) auth.remove(Number(id));
+        characters = {};
+      }
+      saveCharacters(characters);
+      piOverview = null;
       sendJson(req, res, 200, { ok: true });
       return;
     }
 
     if (pathname === "/api/auth/status" && req.method === "GET") {
-      sendJson(req, res, 200, { auth: auth.status(), character: character || null });
+      sendJson(req, res, 200, { auth: auth.status(), characters: characterList(), character: primaryCharacter() });
       return;
     }
 
     if (pathname === "/api/character/refresh" && req.method === "POST") {
-      if (!auth.characterId()) {
+      const body = await readBody(req).catch(() => ({}));
+      const ids = body.characterId
+        ? [Number(body.characterId)]
+        : auth.list().map((c) => Number(c.characterId)).filter((id) => auth.has(id));
+
+      if (!ids.length) {
         sendJson(req, res, 401, { error: "Нет авторизации" });
         return;
       }
-      character = await fetchCharacter({ esi, auth, config });
-      saveCharacter(character);
-      sendJson(req, res, 200, { ok: true, character });
+      const updated = [];
+      for (const id of ids) {
+        try {
+          updated.push(await refreshCharacter(id));
+        } catch (e) {
+          /* пропускаем персонажа с ошибкой */
+        }
+      }
+      sendJson(req, res, 200, { ok: true, characters: updated.map((c) => ({ characterId: c.characterId, name: c.name })) });
       return;
     }
 
@@ -428,7 +680,19 @@ const server = http.createServer(async (req, res) => {
         sendJson(req, res, 400, { error: "Нужны параметры type и loc" });
         return;
       }
-      const data = await itemDetail(typeId, locationId);
+      sendJson(req, res, 200, await itemDetail(typeId, locationId));
+      return;
+    }
+
+    if (pathname === "/api/pi/overview" && req.method === "GET") {
+      const force = url.searchParams.get("refresh") === "1";
+      const data = await buildPiOverview(force);
+      sendJson(req, res, 200, data);
+      return;
+    }
+
+    if (pathname === "/api/pi/refresh" && req.method === "POST") {
+      const data = await buildPiOverview(true);
       sendJson(req, res, 200, data);
       return;
     }
@@ -440,9 +704,10 @@ const server = http.createServer(async (req, res) => {
         sendJson(req, res, 400, { error: "Нужен id структуры" });
         return;
       }
+      const primary = primaryCharacter();
       let info = null;
-      if (auth.characterId()) {
-        info = await esi.get(`/universe/structures/${id}/`, { auth: true }).catch(() => null);
+      if (primary) {
+        info = await esi.get(`/universe/structures/${id}/`, { auth: primary.characterId }).catch(() => null);
       }
       if (!info && !body.force) {
         sendJson(req, res, 404, { error: "Структура не найдена или нет прав доступа. Можно добавить принудительно (force)." });
@@ -466,12 +731,6 @@ const server = http.createServer(async (req, res) => {
       config.structures = config.structures.filter((s) => Number(s.id) !== id);
       saveConfig(config);
       sendJson(req, res, 200, { ok: true });
-      return;
-    }
-
-    if (pathname === "/api/stop" && req.method === "POST") {
-      // мягкая остановка не поддерживается на уровне ESI-запросов; просто сообщаем
-      sendJson(req, res, 200, { ok: true, note: "Текущий скан доработает до конца" });
       return;
     }
 

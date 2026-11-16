@@ -6,12 +6,16 @@ const state = {
   hubs: [],
   auth: null,
   character: null,
+  characters: [],
   rows: [],
   meta: null,
   sort: { key: "iskDay", dir: "desc" },
   filters: { search: "", margin: 2, volume: 10, maxPrice: 2e9, location: "", kind: "", onlyGood: true },
   poll: null,
   rowLimit: 400,
+  pi: null,
+  piFilter: "all",
+  piTimer: null,
 };
 
 // ------------------------------------------------------------------ utils
@@ -68,6 +72,7 @@ function setTab(name, updateHash = true) {
   if (updateHash) history.replaceState({}, "", `#${name}`);
   if (name === "character") renderCharacter();
   if (name === "settings") renderSettings();
+  if (name === "pi") loadPi();
 }
 $("#tabs").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-tab]");
@@ -86,7 +91,7 @@ async function boot() {
     renderFilters();
     bindUI();
     const initialTab = location.hash.replace("#", "");
-    if (["scan", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
+    if (["scan", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
     if (state.cfg.scan?.running) pollScan();
 
     const params = new URLSearchParams(location.search);
@@ -107,6 +112,7 @@ function applyConfig(cfg) {
   state.hubs = cfg.hubs;
   state.auth = cfg.auth;
   state.character = cfg.character;
+  state.characters = cfg.characters || [];
   state.scan = cfg.scan;
   state.resultsMeta = cfg.resultsMeta;
   $("#capture").value = state.cfg.capture;
@@ -132,33 +138,34 @@ async function loadResults() {
 // ------------------------------------------------------------------ auth
 function renderAuth() {
   const box = $("#authbox");
-  if (state.auth?.loggedIn) {
-    const c = state.character;
+  const chars = state.characters || [];
+  if (chars.length) {
+    const total = chars.reduce((a, c) => a + (c.wallet || 0), 0);
+    const label = chars.length === 1 ? esc(chars[0].name || "пилот") : `${chars.length} персонажа`;
     box.innerHTML = `
-      <div class="char"><span class="dot"></span>
-        <span>${esc(c?.name || state.auth.characterName || "пилот")}</span>
-        ${c ? `<span class="muted mono">${isk(c.wallet)} ISK</span>` : ""}
-      </div>
+      <div class="char"><span class="dot"></span><span>${label}</span>
+        <span class="muted mono">${isk(total)} ISK</span></div>
+      <button class="btn small" id="btnAddCharTop" title="Добавить персонажа">+</button>
       <button class="btn small" id="btnLogout">Выйти</button>`;
+    $("#btnAddCharTop").onclick = addCharacter;
     $("#btnLogout").onclick = async () => {
+      if (!confirm("Выйти из всех персонажей?")) return;
       await api("/api/auth/logout", { method: "POST" });
-      state.auth.loggedIn = false;
-      state.character = null;
-      renderAuth();
-      renderCharacter();
-      toast("Вы вышли");
+      location.reload();
     };
   } else {
     box.innerHTML = `<span class="muted">не авторизован</span><button class="btn small" id="btnLogin">Войти через EVE</button>`;
-    $("#btnLogin").onclick = () => {
-      if (!state.cfg.clientId) {
-        setTab("settings");
-        toast("Сначала укажите Client ID в настройках", true);
-        return;
-      }
-      location.href = "/api/auth/login";
-    };
+    $("#btnLogin").onclick = addCharacter;
   }
+}
+
+function addCharacter() {
+  if (!state.cfg?.clientId) {
+    setTab("settings");
+    toast("Сначала укажите Client ID в настройках", true);
+    return;
+  }
+  location.href = "/api/auth/login";
 }
 
 // ------------------------------------------------------------------ scan
@@ -463,20 +470,46 @@ function drawChart(canvas, history) {
 }
 
 // ------------------------------------------------------------------ character
+const card = (label, value, sub = "") =>
+  `<div class="card"><div class="card-label">${esc(label)}</div><div class="card-value mono">${value}</div>${
+    sub ? `<div class="muted small">${sub}</div>` : ""
+  }</div>`;
+
 function renderCharacter() {
-  const c = state.character;
-  $("#charEmpty").hidden = Boolean(c);
-  $("#charContent").hidden = !c;
-  if (!c) return;
+  const chars = state.characters || [];
+  const primary = state.character;
+  $("#charEmpty").hidden = chars.length > 0;
+  $("#charContent").hidden = chars.length === 0;
+  if (!chars.length) return;
 
-  $("#cName").textContent = c.name || "—";
-  $("#cId").textContent = c.characterId ? `ID ${c.characterId}` : "";
-  $("#cWallet").textContent = isk(c.wallet) + " ISK";
-  $("#cSlots").textContent = `${c.orders.count} / ${c.skills.maxOrders}`;
-  $("#cSlotsSub").textContent = `свободно ${c.orders.slotsFree}, в эскроу ${isk(c.orders.escrow)}`;
-  $("#cFees").textContent = `${pct(c.fees.tax, 2)} / ${pct(Object.values(c.fees.hubs || {})[0]?.broker ?? 0, 2)}`;
+  const totalWallet = chars.reduce((a, c) => a + (c.wallet || 0), 0);
+  const totalColonies = chars.reduce((a, c) => a + (c.colonies || 0), 0);
+  $("#charCards").innerHTML = [
+    card("Персонажей", chars.length),
+    card("Кошелёк", isk(totalWallet) + " ISK"),
+    card("Колоний", totalColonies),
+    card("Основной", esc(primary?.name || "—")),
+  ].join("");
 
-  const lv = c.skills.levels || {};
+  $("#charList").innerHTML = chars
+    .map(
+      (c) => `<div class="struct-row">
+        <span class="name">${esc(c.name)} ${
+        primary && primary.characterId === c.characterId ? '<span class="badge dim">основной</span>' : ""
+      }</span>
+        <span class="meta">${isk(c.wallet)} ISK</span>
+        <span class="meta">${c.colonies || 0} колоний</span>
+        <button class="btn tiny" data-primary="${c.characterId}" ${
+        primary && primary.characterId === c.characterId ? "disabled" : ""
+      }>сделать основным</button>
+        <button class="btn tiny" data-logout="${c.characterId}">выйти</button>
+      </div>`
+    )
+    .join("");
+
+  if (!primary) return;
+
+  const lv = primary.skills.levels || {};
   const skillRows = [
     ["Accounting", lv.accounting, "налог"],
     ["Broker Relations", lv.brokerRelations, "брокер"],
@@ -495,7 +528,7 @@ function renderCharacter() {
       .map(([n, v, e]) => `<tr><td>${esc(n)}</td><td class="num">${v ?? 0}</td><td class="muted">${esc(e)}</td></tr>`)
       .join("");
 
-  const hubs = Object.entries(c.fees.hubs || {});
+  const hubs = Object.entries(primary.fees.hubs || {});
   $("#hubFeeTable").innerHTML =
     `<tr><th>Хаб</th><th>Broker</th><th>Стендинги</th></tr>` +
     hubs
@@ -506,7 +539,7 @@ function renderCharacter() {
       )
       .join("");
 
-  const structs = c.structures || [];
+  const structs = primary.structures || [];
   $("#structureList").innerHTML = structs.length
     ? structs
         .map((s) => {
@@ -521,6 +554,455 @@ function renderCharacter() {
         })
         .join("")
     : `<div class="muted small">Структуры не найдены. Они появляются, если у персонажа есть там ордера или ассеты.</div>`;
+}
+
+// ------------------------------------------------------------------ планетарка
+const PIN_COLORS = {
+  extractor: "#ff9f43",
+  factory: "#4cc9f0",
+  storage: "#7c6cff",
+  spaceport: "#38d68b",
+  command: "#f2cd7c",
+  other: "#8fa3bf",
+};
+const PIN_LABELS = {
+  extractor: "экстрактор",
+  factory: "фабрика",
+  storage: "склад",
+  spaceport: "космопорт",
+  command: "командный центр",
+  other: "другое",
+};
+const STATUS_LABELS = { expired: "остановлен", critical: "вот-вот", soon: "скоро", ok: "работает", unknown: "нет данных" };
+
+function fmtLeft(ms) {
+  if (ms === null || ms === undefined) return "—";
+  if (ms <= 0) return "остановлен";
+  const total = Math.floor(ms / 1000);
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (d > 0) return `${d}д ${h}ч`;
+  if (h > 0) return `${h}ч ${String(m).padStart(2, "0")}м`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function piDoneKey(e) {
+  return `${e.characterId}:${e.planetId}:${e.pinId}`;
+}
+function piDoneSet() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("eveflip.pi.done") || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+function piDoneSave(set) {
+  localStorage.setItem("eveflip.pi.done", JSON.stringify([...set].slice(-2000)));
+}
+
+async function loadPi(force = false) {
+  if (!(state.characters || []).length) {
+    state.pi = null;
+    renderPi();
+    return;
+  }
+  $("#piMeta").textContent = "загружаю…";
+  try {
+    const data = await api(`/api/pi/overview${force ? "?refresh=1" : ""}`);
+    state.pi = data;
+    renderPi();
+  } catch (e) {
+    $("#piMeta").textContent = "";
+    toast("Планетарка: " + e.message, true);
+  }
+}
+
+function renderPi() {
+  const pi = state.pi;
+  const colonies = pi?.colonies || [];
+  const has = colonies.length > 0;
+  const warnings = pi?.warnings || [];
+  $("#piEmpty").hidden = has;
+  $("#piContent").hidden = !has;
+  if (!has) {
+    $("#piMeta").textContent = pi ? (warnings.length ? "нужен доступ" : "колоний нет") : "";
+    $("#piEmpty").innerHTML = `
+      <div class="empty-icon">◍</div>
+      <div>${warnings.length ? esc(warnings[0]) : "Колоний не найдено."}</div>
+      <div class="muted small">${
+        warnings.length
+          ? "Выдайте приложению доступ к планетарке: «+ персонаж» → вход тем же персонажем."
+          : "Войдите через EVE и нажмите «Обновить»."
+      }</div>
+      <div style="margin-top:12px"><button class="btn" id="btnPiRelogin">Переавторизоваться</button></div>`;
+    $("#btnPiRelogin").onclick = addCharacter;
+    return;
+  }
+  renderPiChars();
+  renderPiCards();
+  renderPiTable();
+  renderPiQueue();
+  $("#piMeta").textContent = `${colonies.length} колоний · ${new Date(pi.generatedAt).toLocaleTimeString("ru-RU")}${
+    warnings.length ? ` · ⚠ ${warnings.length}` : ""
+  }`;
+  $("#piMeta").title = warnings.join("\n");
+  startPiTimer();
+  notifyExpiring();
+}
+
+function notifyExpiring() {
+  if (localStorage.getItem("eveflip.notify") !== "1") return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const queue = state.pi?.queue || [];
+  let seen;
+  try {
+    seen = new Set(JSON.parse(localStorage.getItem("eveflip.pi.notified") || "[]"));
+  } catch {
+    seen = new Set();
+  }
+  let changed = false;
+  for (const e of queue) {
+    if (e.status !== "critical" && e.status !== "expired") continue;
+    const id = `${e.characterId}:${e.planetId}:${e.pinId}:${e.expiresAt}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    changed = true;
+    try {
+      new Notification("Экстрактор остановился", {
+        body: `${e.planetName || "планета"}: ${e.productName || "продукт"} (${e.characterName || ""})`,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  if (changed) localStorage.setItem("eveflip.pi.notified", JSON.stringify([...seen].slice(-1000)));
+}
+
+function renderPiChars() {
+  const colonies = state.pi?.colonies || [];
+  const chars = state.pi?.characters || [];
+  const counts = new Map();
+  for (const c of colonies) counts.set(c.characterId, (counts.get(c.characterId) || 0) + 1);
+  const all = `<button class="chip ${state.piFilter === "all" ? "active" : ""}" data-pichar="all">Все <span class="count">${colonies.length}</span></button>`;
+  const items = chars
+    .map(
+      (c) =>
+        `<button class="chip ${String(state.piFilter) === String(c.characterId) ? "active" : ""}" data-pichar="${c.characterId}">${esc(
+          c.name
+        )} <span class="count">${counts.get(c.characterId) || 0}</span></button>`
+    )
+    .join("");
+  $("#piChars").innerHTML = all + items;
+}
+
+function renderPiCards() {
+  const t = state.pi.totals;
+  const attention = (t.expired || 0) + (t.critical || 0);
+  $("#piCards").innerHTML = [
+    card("Колонии", t.colonies, `${t.extractors} экстракторов`),
+    card("Требуют внимания", attention, `остановлено: ${t.expired}, вот-вот: ${t.critical}`),
+    card("ISK/час", isk(t.iskPerHour), `≈ ${isk(t.iskPerDay)} ISK/день`),
+    card("На складах", isk(t.contentsValue) + " ISK", "оценка по текущим ценам"),
+  ].join("");
+}
+
+function renderPiTable() {
+  const colonies = (state.pi?.colonies || []).filter(
+    (c) => state.piFilter === "all" || String(c.characterId) === String(state.piFilter)
+  );
+  colonies.sort((a, b) => (a.extractors[0]?.expiresAt || Infinity) - (b.extractors[0]?.expiresAt || Infinity));
+
+  $("#piTableBody").innerHTML = colonies
+    .map((c) => {
+      const nearest = c.extractors[0]?.expiresAt || null;
+      const qty = c.extractors.reduce((a, e) => a + (e.qtyPerHour || 0), 0);
+      const worst = c.totals.expired ? "expired" : c.totals.critical ? "critical" : c.totals.soon ? "soon" : "ok";
+      return `<tr data-colony="${c.characterId}:${c.planetId}">
+        <td class="left"><div class="planet-name">${esc(c.planetName || "Планета " + c.planetId)}</div>
+          <div class="planet-sub">${c.numPins} пинов · ур. ${c.upgradeLevel}</div></td>
+        <td class="left muted">${esc(c.planetType)}</td>
+        <td class="left">${esc(c.systemName || c.systemId)}</td>
+        <td class="left">${esc(c.characterName || c.characterId)}</td>
+        <td class="num">${c.totals.extractorCount}</td>
+        <td class="num"><span class="countdown" data-expires="${nearest || ""}">${nearest ? fmtLeft(nearest - Date.now()) : "—"}</span></td>
+        <td class="num">${fmt(qty, 0)}</td>
+        <td class="num">${isk(c.totals.iskPerHour)}</td>
+        <td class="left"><span class="status ${worst}">${STATUS_LABELS[worst]}</span></td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function renderPiQueue() {
+  const queue = (state.pi?.queue || []).filter(
+    (e) => state.piFilter === "all" || String(e.characterId) === String(state.piFilter)
+  );
+  const done = piDoneSet();
+  const rows = queue.slice(0, 60);
+  $("#piQueue").innerHTML = rows.length
+    ? rows
+        .map((e) => {
+          const key = piDoneKey(e);
+          const isDone = done.has(key);
+          return `<div class="pi-row ${isDone ? "done" : ""}" data-row="${key}">
+            <input type="checkbox" data-pidone="${key}" ${isDone ? "checked" : ""}>
+            <div>
+              <div class="name">${esc(e.productName || "продукт")} · ${esc(e.planetName || "планета")}</div>
+              <div class="sub">${esc(e.characterName || "")} · ${esc(e.systemName || "")} · ${e.heads || 0} голов ·
+                ${fmt(e.qtyPerHour, 0)} шт/ч · ${isk(e.iskPerHour)} ISK/ч</div>
+            </div>
+            <span class="status ${e.status}">${STATUS_LABELS[e.status] || e.status}</span>
+            <span class="countdown" data-expires="${e.expiresAt}">${fmtLeft(e.msLeft)}</span>
+            <button class="btn tiny" data-pimap="${e.characterId}:${e.planetId}">карта</button>
+          </div>`;
+        })
+        .join("")
+    : `<div class="muted small">Активных экстракторов нет.</div>`;
+}
+
+function startPiTimer() {
+  clearInterval(state.piTimer);
+  updateCountdowns();
+  state.piTimer = setInterval(updateCountdowns, 1000);
+}
+
+function updateCountdowns() {
+  for (const el of $$(".countdown[data-expires]")) {
+    const ts = Number(el.dataset.expires);
+    if (!ts) continue;
+    el.textContent = fmtLeft(ts - Date.now());
+  }
+}
+
+function openColony(characterId, planetId) {
+  const c = (state.pi?.colonies || []).find(
+    (x) => String(x.characterId) === String(characterId) && String(x.planetId) === String(planetId)
+  );
+  if (!c) return;
+
+  $("#drawer").hidden = false;
+  $("#backdrop").hidden = false;
+  $("#drawerBody").innerHTML = `
+    <h2>${esc(c.planetName || "Планета " + c.planetId)}</h2>
+    <div class="sub">${esc(c.planetType)} · ${esc(c.systemName || c.systemId)} · ${esc(c.characterName || "")} ·
+      ур. ${c.upgradeLevel} · ${c.numPins} пинов</div>
+
+    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+      ${card("Экстракторы", c.totals.extractorCount, `остановлено ${c.totals.expired}`)}
+      ${card("ISK/час", isk(c.totals.iskPerHour), `≈ ${isk(c.totals.iskPerDay)}/день`)}
+      ${card("На складах", isk(c.totals.contentsValue))}
+    </div>
+
+    <div class="planet-wrap">
+      <canvas class="planet-canvas" id="planetCanvas"></canvas>
+      <div class="pin-legend">
+        ${Object.entries(PIN_LABELS)
+          .map(([k, v]) => `<span><i style="background:${PIN_COLORS[k]}"></i>${v}</span>`)
+          .join("")}
+      </div>
+    </div>
+
+    <h3 style="margin:18px 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Экстракторы</h3>
+    <div class="pi-queue">
+      ${
+        c.extractors.length
+          ? c.extractors
+              .map(
+                (e) => `<div class="pi-row">
+                  <span class="status ${e.status}">${STATUS_LABELS[e.status] || e.status}</span>
+                  <div><div class="name">${esc(e.productName || "продукт")}</div>
+                    <div class="sub">${e.heads} голов · ${fmt(e.qtyPerHour, 0)} шт/ч · ${isk(e.iskPerHour)} ISK/ч</div></div>
+                  <span class="countdown" data-expires="${e.expiresAt}">${fmtLeft(e.msLeft)}</span>
+                  <span></span>
+                </div>`
+              )
+              .join("")
+          : `<div class="muted small">Экстракторов нет.</div>`
+      }
+    </div>
+
+    ${
+      c.factories.length
+        ? `<h3 style="margin:18px 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Фабрики</h3>
+           <div class="pi-queue">${c.factories
+             .map(
+               (f) => `<div class="pi-row"><span class="status ok">схема</span>
+                 <div><div class="name">${esc(f.schematicName || "Схема " + f.schematicId)}</div>
+                 <div class="sub">цикл ${f.cycleTime ? Math.round(f.cycleTime / 60) + " мин" : "—"}</div></div><span></span><span></span></div>`
+             )
+             .join("")}</div>`
+        : ""
+    }
+
+    <div class="note">
+      <b>Перезапуск:</b> ESI не предоставляет операций записи для планетарки — перезапустить экстрактор из приложения нельзя.
+      Откройте колонию в игре, выберите Extractor Control Unit и нажмите Restart. Таймеры здесь — чтобы не забыть.
+    </div>
+  `;
+
+  drawPlanet($("#planetCanvas"), c);
+  startPiTimer();
+}
+
+function projectPins(pins) {
+  const vec = pins.map((p) => {
+    const lat = ((p.lat || 0) * Math.PI) / 180;
+    const lon = ((p.lon || 0) * Math.PI) / 180;
+    return [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
+  });
+  let c = [0, 0, 0];
+  for (const v of vec) {
+    c[0] += v[0];
+    c[1] += v[1];
+    c[2] += v[2];
+  }
+  const len = Math.hypot(c[0], c[1], c[2]) || 1;
+  c = [c[0] / len, c[1] / len, c[2] / len];
+
+  let right = [c[1] * 1 - c[2] * 0, c[2] * 0 - c[0] * 1, c[0] * 0 - c[1] * 0];
+  right = [c[1], -c[0], 0];
+  const rl = Math.hypot(right[0], right[1], right[2]);
+  if (rl < 1e-6) right = [1, 0, 0];
+  else right = [right[0] / rl, right[1] / rl, right[2] / rl];
+  const up = [c[1] * right[2] - c[2] * right[1], c[2] * right[0] - c[0] * right[2], c[0] * right[1] - c[1] * right[0]];
+
+  return pins.map((p, i) => ({
+    pin: p,
+    x: vec[i][0] * right[0] + vec[i][1] * right[1] + vec[i][2] * right[2],
+    y: vec[i][0] * up[0] + vec[i][1] * up[1] + vec[i][2] * up[2],
+    z: vec[i][0] * c[0] + vec[i][1] * c[1] + vec[i][2] * c[2],
+  }));
+}
+
+function drawPlanet(canvas, colony) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 460;
+  const h = canvas.clientHeight || 360;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const R = Math.min(w, h) / 2 - 16;
+
+  const grad = ctx.createRadialGradient(cx - R * 0.4, cy - R * 0.4, R * 0.1, cx, cy, R);
+  grad.addColorStop(0, "#1b3a52");
+  grad.addColorStop(0.6, "#0d1b28");
+  grad.addColorStop(1, "#050a10");
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(120,165,225,.25)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // сетка
+  ctx.strokeStyle = "rgba(120,165,225,.10)";
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const rr = R * Math.cos((lat * Math.PI) / 180);
+    const yy = cy - R * Math.sin((lat * Math.PI) / 180);
+    ctx.beginPath();
+    ctx.ellipse(cx, yy, Math.max(2, rr), Math.max(1, rr * 0.18), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (let lon = 0; lon < 180; lon += 45) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.abs(R * Math.cos((lon * Math.PI) / 180)) + 1, R, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const pts = projectPins(colony.pins || []);
+  const scale = (p) => ({ x: cx + p.x * R, y: cy - p.y * R, z: p.z });
+
+  // связи
+  ctx.lineWidth = 1;
+  for (const l of colony.links || []) {
+    const a = pts.find((p) => p.pin.id === l.source_pin_id);
+    const b = pts.find((p) => p.pin.id === l.destination_pin_id);
+    if (!a || !b || a.z < -0.2 || b.z < -0.2) continue;
+    const pa = scale(a);
+    const pb = scale(b);
+    ctx.strokeStyle = "rgba(120,165,225,.22)";
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
+
+  // маршруты
+  for (const r of colony.routes || []) {
+    const a = pts.find((p) => p.pin.id === r.source_pin_id);
+    const b = pts.find((p) => p.pin.id === r.destination_pin_id);
+    if (!a || !b || a.z < -0.2 || b.z < -0.2) continue;
+    const pa = scale(a);
+    const pb = scale(b);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(72,201,240,.35)";
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // пины
+  canvas._pinPoints = [];
+  for (const p of pts) {
+    const s = scale(p);
+    const color = PIN_COLORS[p.pin.kind] || PIN_COLORS.other;
+    const alpha = p.z >= 0 ? 1 : 0.25;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, p.pin.kind === "command" ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (p.z >= 0) {
+      ctx.strokeStyle = "rgba(255,255,255,.35)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    canvas._pinPoints.push({ x: s.x, y: s.y, pin: p.pin });
+  }
+
+  if (!canvas._tipBound) {
+    canvas._tipBound = true;
+    const tip = document.createElement("div");
+    tip.className = "colony-tooltip";
+    tip.hidden = true;
+    document.body.appendChild(tip);
+    canvas.addEventListener("mousemove", (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      let best = null;
+      for (const p of canvas._pinPoints || []) {
+        if (Math.hypot(p.x - mx, p.y - my) < 11) best = p;
+      }
+      if (!best) {
+        tip.hidden = true;
+        return;
+      }
+      const pin = best.pin;
+      tip.innerHTML = `<div class="t">${esc(pin.typeName)}</div>
+        <div class="m">${pin.kind === "extractor" ? esc(pin.productName || "") : ""}
+        ${pin.qtyPerHour ? ` · ${fmt(pin.qtyPerHour, 0)} шт/ч` : ""}
+        ${pin.schematicName ? ` · ${esc(pin.schematicName)}` : ""}</div>`;
+      tip.style.left = `${ev.clientX + 14}px`;
+      tip.style.top = `${ev.clientY + 12}px`;
+      tip.hidden = false;
+    });
+    canvas.addEventListener("mouseleave", () => {
+      tip.hidden = true;
+    });
+  }
 }
 
 // ------------------------------------------------------------------ settings
@@ -582,7 +1064,79 @@ function bindUI() {
   $("#backdrop").onclick = closeDrawer;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
-  $("#btnLogin") && ($("#btnLogin").onclick = () => (location.href = "/api/auth/login"));
+  $("#btnLogin") && ($("#btnLogin").onclick = addCharacter);
+
+  // --- планетарка ---
+  $("#btnAddChar").onclick = addCharacter;
+  $("#btnAddChar2").onclick = addCharacter;
+  $("#btnPiRefresh").onclick = () => loadPi(true);
+  $("#piNotify").checked = localStorage.getItem("eveflip.notify") === "1";
+  $("#piNotify").onchange = async (e) => {
+    if (e.target.checked && "Notification" in window && Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        e.target.checked = false;
+        toast("Браузер запретил уведомления", true);
+        localStorage.setItem("eveflip.notify", "0");
+        return;
+      }
+    }
+    localStorage.setItem("eveflip.notify", e.target.checked ? "1" : "0");
+  };
+
+  $("#tab-pi").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-pichar]");
+    if (chip) {
+      state.piFilter = chip.dataset.pichar;
+      renderPi();
+      return;
+    }
+    const mapBtn = e.target.closest("[data-pimap]");
+    if (mapBtn) {
+      const [cid, pid] = mapBtn.dataset.pimap.split(":");
+      openColony(cid, Number(pid));
+      return;
+    }
+    const row = e.target.closest("tr[data-colony]");
+    if (row) {
+      const [cid, pid] = row.dataset.colony.split(":");
+      openColony(cid, Number(pid));
+    }
+  });
+
+  $("#tab-pi").addEventListener("change", (e) => {
+    const cb = e.target.closest("[data-pidone]");
+    if (!cb) return;
+    const set = piDoneSet();
+    if (cb.checked) set.add(cb.dataset.pidone);
+    else set.delete(cb.dataset.pidone);
+    piDoneSave(set);
+    cb.closest(".pi-row")?.classList.toggle("done", cb.checked);
+  });
+
+  // --- персонажи ---
+  document.body.addEventListener("click", async (e) => {
+    const primaryBtn = e.target.closest("[data-primary]");
+    if (primaryBtn) {
+      await api("/api/config", { method: "POST", body: JSON.stringify({ primaryCharacterId: Number(primaryBtn.dataset.primary) }) });
+      const cfg = await api("/api/config");
+      applyConfig(cfg);
+      renderAuth();
+      renderCharacter();
+      toast("Основной персонаж выбран");
+      return;
+    }
+    const logoutBtn = e.target.closest("[data-logout]");
+    if (logoutBtn) {
+      await api("/api/auth/logout", { method: "POST", body: JSON.stringify({ characterId: Number(logoutBtn.dataset.logout) }) });
+      const cfg = await api("/api/config");
+      applyConfig(cfg);
+      renderAuth();
+      renderCharacter();
+      state.pi = null;
+      toast("Персонаж отключён");
+    }
+  });
 
   $("#btnSaveClient").onclick = async () => {
     const clientId = $("#clientId").value.trim();
@@ -646,11 +1200,13 @@ function bindUI() {
   $("#btnRefreshChar").onclick = async () => {
     try {
       $("#btnRefreshChar").disabled = true;
-      const r = await api("/api/character/refresh", { method: "POST" });
-      state.character = r.character;
-      renderCharacter();
+      await api("/api/character/refresh", { method: "POST" });
+      const cfg = await api("/api/config");
+      applyConfig(cfg);
       renderAuth();
-      toast("Данные персонажа обновлены");
+      renderCharacter();
+      state.pi = null;
+      toast("Данные персонажей обновлены");
     } catch (err) {
       toast(err.message, true);
     } finally {
