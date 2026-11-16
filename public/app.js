@@ -1117,7 +1117,7 @@ function intelRow(p) {
 function intelTable(list) {
   return `<table class="intel-table"><thead><tr>
       <th>Пилот</th><th>Корабль</th><th>Система</th><th>Регион</th><th class="num">Прыжков</th><th>Мой чар</th><th>Когда</th>
-    </tr></thead><tbody>${list.slice(0, 80).map(intelRow).join("")}</tbody></table>`;
+    </tr></thead><tbody>${list.slice(0, 200).map(intelRow).join("")}</tbody></table>`;
 }
 
 function renderIntel() {
