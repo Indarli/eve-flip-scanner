@@ -1162,13 +1162,27 @@ function renderIntel() {
   $("#intelChatDir").textContent = d.chatDir || "";
   $("#intelMeta").textContent = `${d.stats.messages} сообщений · ${d.stats.pilots} пилотов${
     d.stats.lastMessageAt ? ` · ${fmtAge(Math.round((Date.now() - d.stats.lastMessageAt) / 1000))} назад` : ""
-  }`;
+  }${(d.warnings || []).length ? ` · ⚠ ${d.warnings.length}` : ""}`;
+  $("#intelMeta").title = (d.warnings || []).join("\n");
+
+  const warnBox = $("#intelWarn");
+  if (warnBox) {
+    const warnings = d.warnings || [];
+    warnBox.hidden = !warnings.length;
+    if (warnings.length) {
+      $("#intelWarnText").textContent =
+        "Проверка онлайна недоступна: " + warnings.join("; ") + ". Пока персонаж не подтверждён онлайн, расстояние по нему не считается.";
+    }
+  }
 
   $("#intelOwn").innerHTML = d.own.length
     ? d.own
-        .map(
-          (o) => `<span class="chip active">${esc(o.name)}${o.systemName ? ` · ${esc(o.systemName)}` : " · нет позиции"}</span>`
-        )
+        .map((o) => {
+          const state =
+            o.online === true ? o.systemName || "нет позиции" : o.online === false ? "оффлайн" : "нужен вход";
+          const cls = o.online === true ? "chip active" : "chip";
+          return `<span class="${cls}" title="${esc(o.error || "")}">${esc(o.name)} · ${esc(state)}</span>`;
+        })
         .join("")
     : `<span class="muted small">нет авторизованных персонажей — позиция неизвестна</span>`;
 
@@ -1384,6 +1398,7 @@ function bindUI() {
     toast("Логи перечитаны");
   };
   $("#intelRescanChannels").onclick = () => loadIntel();
+  $("#btnIntelRelogin") && ($("#btnIntelRelogin").onclick = addCharacter);
   $("#intelChannels").addEventListener("change", (e) => {
     if (e.target.matches("input[data-ch]")) saveIntelChannels();
   });
