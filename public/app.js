@@ -1039,7 +1039,9 @@ function fmtAge(sec) {
 }
 
 function alertKey(a) {
-  return `${a.name}|${a.systemId}|${Math.floor((a.ts || 0) / 60000)}`;
+  if (a.key) return a.key;
+  const names = (a.names || []).map((n) => n.name).join(",");
+  return `${names}|${a.systemId}|${Math.floor((a.ts || 0) / 60000)}`;
 }
 
 function beep() {
@@ -1074,22 +1076,82 @@ function playIntelSound(force = false) {
   }
 }
 
+function intelAlertLine(a) {
+  const names = (a.names || []).map((n) => n.name).join(", ");
+  const extra = a.extra ? ` <span class="ip-extra">+${a.extra}</span>` : "";
+  const sys = a.systemName || "—";
+  const region = a.regionName ? ` (${a.regionName})` : "";
+  return `<div class="ip-item"><b>${esc(names || "?")}</b>${extra} — <span class="ip-sys">${esc(sys)}</span>${esc(
+    region
+  )} · <span class="ip-jumps">${a.jumps} пр.</span></div>`;
+}
+
+function showIntelPopup(rows) {
+  const el = $("#intelPopup");
+  if (!el || !rows.length) return;
+  el.innerHTML = `
+    <div class="ip-head">
+      <span class="ip-title">ИНТЕЛЬ · ${rows.length} новых</span>
+      <button class="ip-close" id="ipClose" title="закрыть">×</button>
+    </div>
+    ${rows.slice(0, 3).map(intelAlertLine).join("")}
+    <div class="ip-foot">нажмите, чтобы открыть вкладку «Интель»</div>`;
+  el.hidden = false;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => (el.hidden = true), 15000);
+  el.onclick = (e) => {
+    if (e.target.closest("#ipClose")) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = true;
+    setTab("intel");
+  };
+}
+
+function notifyIntel(rows) {
+  if (localStorage.getItem("eveflip.intel.notify") !== "1") return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const first = rows[0];
+  const names = (first.names || []).map((n) => n.name).join(", ");
+  const extra = first.extra ? ` +${first.extra}` : "";
+  const where = `${first.systemName || "?"}${first.regionName ? ` (${first.regionName})` : ""}`;
+  const body = `${names}${extra} — ${where}, ${first.jumps} пр.${rows.length > 1 ? ` (и ещё ${rows.length - 1})` : ""}`;
+  try {
+    const n = new Notification(`Интель: ${first.jumps === 0 ? "у вас в системе" : `${first.jumps} прыжк.`}`, {
+      body,
+      tag: "eve-intel",
+      renotify: true,
+    });
+    n.onclick = () => {
+      window.focus();
+      setTab("intel");
+      n.close();
+    };
+  } catch {
+    /* уведомления недоступны */
+  }
+}
+
 function checkIntelAlerts(alerts) {
   if (!state.intelLoaded) {
     for (const a of alerts) state.intelSeen.add(alertKey(a));
     state.intelLoaded = true;
     return;
   }
-  let fresh = false;
+  const fresh = [];
   for (const a of alerts) {
     const k = alertKey(a);
     if (!state.intelSeen.has(k)) {
       state.intelSeen.add(k);
-      fresh = true;
+      fresh.push(a);
     }
   }
   if (state.intelSeen.size > 800) state.intelSeen = new Set([...state.intelSeen].slice(-400));
-  if (fresh) playIntelSound();
+  if (!fresh.length) return;
+  playIntelSound();
+  showIntelPopup(fresh);
+  notifyIntel(fresh);
 }
 
 function intelRow(p) {
@@ -1399,6 +1461,19 @@ function bindUI() {
     reader.readAsDataURL(file);
   };
   $("#intelTestSound").onclick = () => playIntelSound(true);
+  $("#intelNotify").checked = localStorage.getItem("eveflip.intel.notify") === "1";
+  $("#intelNotify").onchange = async (e) => {
+    if (e.target.checked && "Notification" in window && Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        e.target.checked = false;
+        localStorage.setItem("eveflip.intel.notify", "0");
+        toast("Браузер запретил уведомления", true);
+        return;
+      }
+    }
+    localStorage.setItem("eveflip.intel.notify", e.target.checked ? "1" : "0");
+  };
   $("#intelRefresh").onclick = async () => {
     await api("/api/intel/refresh", { method: "POST", body: "{}" });
     await loadIntel();

@@ -374,3 +374,21 @@ code {
 
 .intel-new { animation: intelFlash 1.2s ease; }
 @keyframes intelFlash { from { background: rgba(255,140,60,.25); } to { background: transparent; } }
+
+.intel-popup {
+  position: fixed; top: 72px; right: 22px; width: min(380px, 92vw); z-index: 85;
+  background: linear-gradient(180deg, #16202c, #0e1520);
+  border: 1px solid rgba(255, 140, 60, .55);
+  border-radius: 12px; padding: 12px 14px; cursor: pointer;
+  box-shadow: 0 14px 50px rgba(0,0,0,.55), 0 0 0 1px rgba(255,140,60,.12);
+  animation: slide .18s ease;
+}
+.intel-popup .ip-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.intel-popup .ip-title { font-weight: 700; color: #ffb27a; letter-spacing: .03em; }
+.intel-popup .ip-close { background: transparent; border: 0; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.intel-popup .ip-item { font-size: 13px; padding: 4px 0; border-top: 1px solid rgba(120,165,225,.08); }
+.intel-popup .ip-item:first-of-type { border-top: 0; }
+.intel-popup .ip-sys { color: var(--accent); }
+.intel-popup .ip-jumps { font-family: var(--mono); color: var(--warn); }
+.intel-popup .ip-extra { color: var(--warn); font-family: var(--mono); font-size: 11px; }
+.intel-popup .ip-foot { margin-top: 8px; color: var(--muted); font-size: 11px; }

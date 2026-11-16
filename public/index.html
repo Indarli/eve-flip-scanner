@@ -97,6 +97,7 @@
           <span id="intelThresholdVal" class="mono">5</span>
         </div>
         <label class="chk"><input type="checkbox" id="intelSound" checked> писк</label>
+        <label class="chk" title="Всплывающие уведомления Windows"><input type="checkbox" id="intelNotify"> уведомления</label>
         <button class="btn small" id="intelSoundPick">свой звук…</button>
         <input type="file" id="intelSoundFile" accept="audio/*" hidden>
         <button class="btn small" id="intelTestSound">тест</button>
@@ -321,6 +322,7 @@
   </aside>
 
   <div class="toast" id="toast" hidden></div>
+  <div class="intel-popup" id="intelPopup" hidden></div>
 </div>
 <script src="/app.js" type="module"></script>
 </body>
