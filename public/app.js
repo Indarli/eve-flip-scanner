@@ -1480,6 +1480,11 @@ function bindUI() {
     toast("Логи перечитаны");
   };
   $("#intelRescanChannels").onclick = () => loadIntel();
+  $("#intelRecalc").onclick = async () => {
+    await api("/api/intel/recalc", { method: "POST", body: "{}" });
+    await loadIntel();
+    toast("Расстояния пересчитаны от текущих систем");
+  };
   $("#btnIntelRelogin") && ($("#btnIntelRelogin").onclick = addCharacter);
   $("#intelChannels").addEventListener("change", (e) => {
     if (e.target.matches("input[data-ch]")) saveIntelChannels();

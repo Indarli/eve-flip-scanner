@@ -916,6 +916,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/intel/recalc" && req.method === "POST") {
+      intel.recalcDistances();
+      sendJson(req, res, 200, { ok: true });
+      return;
+    }
+
     if (pathname === "/api/structures" && req.method === "POST") {
       const body = await readBody(req);
       const id = Number(body.id);
