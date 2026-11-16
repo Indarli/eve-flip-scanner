@@ -1098,7 +1098,7 @@ function showIntelPopup(rows) {
     <div class="ip-foot">нажмите, чтобы открыть вкладку «Интель»</div>`;
   el.hidden = false;
   clearTimeout(el._t);
-  el._t = setTimeout(() => (el.hidden = true), 15000);
+  el._t = setTimeout(() => (el.hidden = true), 10000);
   el.onclick = (e) => {
     if (e.target.closest("#ipClose")) {
       el.hidden = true;
