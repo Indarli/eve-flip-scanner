@@ -375,6 +375,21 @@
       </div>
 
       <div class="panel">
+        <h3>Параметры сканера и интеля</h3>
+        <div class="formrow">
+          <label>Бюджет истории <input id="setHistoryBudget" type="number" min="20" max="1000" step="10" class="narrow" /></label>
+          <label>Доля рынка <input id="setCapture" type="number" min="0.05" max="1" step="0.05" class="narrow" /></label>
+          <label>Окно интеля, мин <input id="setRecentMinutes" type="number" min="5" max="1440" step="5" class="narrow" /></label>
+          <button class="btn" id="setScannerSave">Сохранить</button>
+        </div>
+        <p class="muted small">
+          Бюджет истории — сколько пар (тип, регион) обогащать историей за один скан (влияет на время скана).
+          Доля рынка — какая часть дневного объёма считается реалистично вашей.
+          Окно интеля — за сколько последних минут показывать сообщения.
+        </p>
+      </div>
+
+      <div class="panel">
         <h3>Параметры расчёта</h3>
         <div class="formrow">
           <label>Ставка владельца по умолчанию, %</label>

@@ -63,6 +63,9 @@
 | `eveflip.pf.char` | Портфель | id выбранного персонажа |
 | `eveflip.intel.notify` | Интел | `"1"` — системные уведомления браузера |
 
+Через «Настройки → Параметры сканера и интеля» сохраняются **на сервере**:
+`historyBudget`, `capture` и `intel.recentMinutes` (уходят в `POST /api/config`).
+
 ## Пример
 
 ```json

@@ -110,10 +110,15 @@ async function locationInfo(locationId, characterId) {
   const id = Number(locationId);
   if (!id) return { name: null, systemName: null };
   const hit = locationCache.get(id);
-  if (hit && Date.now() - hit.ts < 6 * 3600_000) return hit;
+  if (hit) {
+    // успех кэшируем надолго, отрицательный результат — на 10 минут
+    const ttl = hit.failed ? 10 * 60_000 : 6 * 3600_000;
+    if (Date.now() - hit.ts < ttl) return hit;
+  }
 
   let name = null;
   let systemName = null;
+  let failed = false;
   try {
     if (id < 1e12) {
       const st = await esi.get(`/universe/stations/${id}/`);
@@ -141,9 +146,11 @@ async function locationInfo(locationId, characterId) {
       }
     }
   } catch {
+    failed = true;
     /* структура может быть недоступна */
   }
-  const info = { name, systemName, ts: Date.now() };
+  if (!name) failed = true;
+  const info = { name, systemName, failed, ts: Date.now() };
   locationCache.set(id, info);
   return info;
 }
@@ -225,9 +232,17 @@ async function buildPortfolio(characterId) {
     .sort((a, b) => b.value - a.value)
     .slice(0, 30);
 
-  const locInfos = await mapLimit(inventoryRaw, 6, (r) =>
-    r.locationId ? withTimeout(locationInfo(r.locationId, ch.characterId), 4000) : null
-  );
+  const locInfos = await mapLimit(inventoryRaw, 6, async (r) => {
+    if (!r.locationId) return null;
+    const id = Number(r.locationId);
+    const info = await withTimeout(locationInfo(id, ch.characterId), 4000);
+    if (info) return info;
+    // таймаут: временный отрицательный кэш, чтобы не дёргать ESI каждый расчёт
+    if (!locationCache.has(id)) {
+      locationCache.set(id, { name: null, systemName: null, failed: true, ts: Date.now() });
+    }
+    return locationCache.get(id);
+  });
   const inventory = inventoryRaw.map((r, i) => ({
     ...r,
     locationName: locInfos[i]?.name || null,
@@ -622,7 +637,7 @@ async function itemDetail(typeId, locationId) {
         }
       : { id: typeId, name: `Type ${typeId}` },
     book: levels,
-    history: (Array.isArray(history) ? history : []).slice(-180),
+    history: (Array.isArray(history) ? history : []).slice(-365),
     fees: fee,
   };
 }
@@ -1050,6 +1065,7 @@ const server = http.createServer(async (req, res) => {
           body.primaryCharacterId && characters[body.primaryCharacterId] ? Number(body.primaryCharacterId) : config.primaryCharacterId,
         hubs: { ...config.hubs, ...(body.hubs || {}) },
         filters: { ...config.filters, ...(body.filters || {}) },
+        intel: { ...config.intel, ...(body.intel || {}) },
         structures: Array.isArray(body.structures) ? body.structures : config.structures,
         defaultStructureTax:
           body.defaultStructureTax !== undefined

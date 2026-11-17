@@ -1,6 +1,6 @@
 {
   "name": "eve-flip-scanner",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "EVE Online station-flip scanner (ESI + EVE SSO) with local web UI. Created with AI: DeepSeek Harness / deepseek-flash.",

@@ -250,6 +250,10 @@ code {
 .ladder .buy .mini-bar i { background: rgba(56,214,139,.55); }
 
 .chart-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: rgba(7,11,17,.5); }
+.chart-range { display: flex; gap: 4px; margin-bottom: 6px; }
+.chart-range button { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 2px 9px; font-size: 11px; cursor: pointer; }
+.chart-range button:hover { color: var(--text); }
+.chart-range button.active { color: var(--text); border-color: rgba(72,201,240,.45); background: rgba(72,201,240,.12); }
 .chart-box canvas { width: 100%; height: 200px; display: block; }
 .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; }
 .chart-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }

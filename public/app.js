@@ -13,6 +13,7 @@ const state = {
   filters: { search: "", margin: 2, volume: 10, maxPrice: 2e9, location: "", kind: "", onlyGood: true, hideSk: false },
   poll: null,
   rowLimit: 400,
+  chartDays: 90,
   sse: false,
   es: null,
   scanDoneKey: null,
@@ -682,6 +683,12 @@ async function openItem(key) {
     </div>
 
     <div class="chart-box">
+      <div class="chart-range">
+        <button data-days="7">7д</button>
+        <button data-days="30">30д</button>
+        <button data-days="90" class="active">90д</button>
+        <button data-days="365">365д</button>
+      </div>
       <canvas id="chart"></canvas>
       <div class="chart-legend"><span><i style="background:#48c9f0"></i>средняя цена</span><span><i style="background:rgba(120,165,225,.35)"></i>объём</span></div>
     </div>
@@ -694,7 +701,14 @@ async function openItem(key) {
     </div>
   `;
 
-  drawChart($("#chart"), d.history);
+  const chartCanvas = $("#chart");
+  const applyRange = (days) => {
+    state.chartDays = days;
+    $$(".chart-range button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === days));
+    drawChart(chartCanvas, d.history, days);
+  };
+  $$(".chart-range button").forEach((b) => (b.onclick = () => applyRange(Number(b.dataset.days))));
+  applyRange(state.chartDays || 90);
   loadCompare(row.typeId);
 }
 
@@ -703,7 +717,7 @@ function closeDrawer() {
   $("#backdrop").hidden = true;
 }
 
-function drawChart(canvas, history) {
+function drawChart(canvas, history, days = 90) {
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 500;
@@ -714,11 +728,12 @@ function drawChart(canvas, history) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const data = (history || []).filter((d) => Number(d.average) > 0);
+  const cutoff = Date.now() - days * 86400_000;
+  const data = (history || []).filter((d) => Number(d.average) > 0 && (!d.date || Date.parse(d.date) >= cutoff));
   if (data.length < 2) {
     ctx.fillStyle = "#7f90ab";
     ctx.font = "12px monospace";
-    ctx.fillText("нет истории", 12, h / 2);
+    ctx.fillText(`нет истории за ${days} дн.`, 12, h / 2);
     return;
   }
 
@@ -1858,6 +1873,14 @@ function openIntelRow(key) {
   }
 }
 
+function setHtmlCached(sel, html) {
+  const el = $(sel);
+  if (!el) return;
+  if (el._lastHtml === html) return;
+  el._lastHtml = html;
+  el.innerHTML = html;
+}
+
 function renderIntel() {
   const d = state.intel;
   if (!d) return;
@@ -1877,16 +1900,17 @@ function renderIntel() {
     }
   }
 
-  $("#intelOwn").innerHTML = d.own.length
+  const ownHtml = d.own.length
     ? d.own
         .map((o) => {
-          const state =
+          const label =
             o.online === true ? o.systemName || "нет позиции" : o.online === false ? "оффлайн" : "нужен вход";
           const cls = o.online === true ? "chip active" : "chip";
-          return `<span class="${cls}" title="${esc(o.error || "")}">${esc(o.name)} · ${esc(state)}</span>`;
+          return `<span class="${cls}" title="${esc(o.error || "")}">${esc(o.name)} · ${esc(label)}</span>`;
         })
         .join("")
     : `<span class="muted small">нет авторизованных персонажей — позиция неизвестна</span>`;
+  setHtmlCached("#intelOwn", ownHtml);
 
   $("#intelThreshold").value = d.threshold;
   $("#intelThresholdVal").textContent = d.threshold;
@@ -1894,7 +1918,7 @@ function renderIntel() {
 
   const selected = new Set(d.config.channels || []);
   const chans = d.channels || [];
-  $("#intelChannels").innerHTML = chans.length
+  const channelsHtml = chans.length
     ? chans
         .map(
           (c) => `<label class="chkrow">
@@ -1905,23 +1929,28 @@ function renderIntel() {
         )
         .join("")
     : `<div class="intel-empty">Логи не найдены. Проверьте папку Chatlogs.</div>`;
+  setHtmlCached("#intelChannels", channelsHtml);
 
   const alerts = d.alerts || [];
   const countNames = (list) => list.reduce((a, r) => a + (r.names?.length || 1) + (r.extra || 0), 0);
   $("#intelAlertCount").textContent = `${alerts.length} событий · ${countNames(alerts)} пилотов · радиус ${d.threshold}`;
-  $("#intelAlerts").innerHTML = alerts.length
-    ? intelTable(alerts)
-    : `<div class="intel-empty">Пока никого рядом. Выберите чаты слева и дождитесь сообщений.</div>`;
+  setHtmlCached(
+    "#intelAlerts",
+    alerts.length
+      ? intelTable(alerts)
+      : `<div class="intel-empty">Пока никого рядом. Выберите чаты слева и дождитесь сообщений.</div>`
+  );
 
   const pilots = d.pilots || [];
   $("#intelPilotCount").textContent = `${pilots.length} событий`;
-  $("#intelPilots").innerHTML = pilots.length ? intelTable(pilots) : `<div class="intel-empty">Нет упоминаний.</div>`;
+  setHtmlCached("#intelPilots", pilots.length ? intelTable(pilots) : `<div class="intel-empty">Нет упоминаний.</div>`);
 
   const zkb = d.zkb || [];
   $("#intelZkbCount").textContent = `${zkb.length}`;
-  $("#intelZkb").innerHTML = zkb.length
-    ? zkbTable(zkb)
-    : `<div class="intel-empty">Подтверждённых записей zKill в радиусе нет.</div>`;
+  setHtmlCached(
+    "#intelZkb",
+    zkb.length ? zkbTable(zkb) : `<div class="intel-empty">Подтверждённых записей zKill в радиусе нет.</div>`
+  );
 
   checkIntelAlerts(alerts);
   checkZkbAlerts(zkb);
@@ -1996,6 +2025,12 @@ function renderSettings() {
       ai.model
     )} · <a href="https://github.com/Indarli/eve-flip-scanner" target="_blank" rel="noreferrer">GitHub</a>`;
   }
+  if ($("#setHistoryBudget")) {
+    $("#setHistoryBudget").value = state.cfg.historyBudget ?? 250;
+    $("#setCapture").value = state.cfg.capture ?? 0.5;
+    $("#setRecentMinutes").value = state.cfg.intel?.recentMinutes ?? 30;
+  }
+
   const ac = autoCfg();
   if ($("#autoScanEnabled")) {
     $("#autoScanEnabled").checked = ac.enabled;
@@ -2025,6 +2060,23 @@ function renderDiag(stats) {
 
 // ------------------------------------------------------------------ events
 function bindUI() {
+  $("#setScannerSave").onclick = async () => {
+    try {
+      const body = {
+        historyBudget: Number($("#setHistoryBudget").value) || 250,
+        capture: Number($("#setCapture").value) || 0.5,
+        intel: { recentMinutes: Number($("#setRecentMinutes").value) || 30 },
+      };
+      await api("/api/config", { method: "POST", body: JSON.stringify(body) });
+      state.cfg.historyBudget = body.historyBudget;
+      state.cfg.capture = body.capture;
+      state.cfg.intel = { ...(state.cfg.intel || {}), recentMinutes: body.intel.recentMinutes };
+      toast("Сохранено");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+
   $("#autoScanSave").onclick = () => {
     localStorage.setItem("eveflip.auto.enabled", $("#autoScanEnabled").checked ? "1" : "0");
     localStorage.setItem("eveflip.auto.minutes", String(Math.max(5, Number($("#autoScanMinutes").value) || 10)));
