@@ -26,6 +26,10 @@ const state = {
   intelLoaded: false,
   zkbSeen: new Set(),
   zkbLoaded: false,
+  portfolio: null,
+  pfTimer: null,
+  pfSeen: new Set(),
+  pfLoaded: false,
   intelSort: { key: "ageSec", dir: "asc" }, // «Когда»: сверху самое новое
 };
 
@@ -84,6 +88,13 @@ function setTab(name, updateHash = true) {
   if (name === "character") renderCharacter();
   if (name === "settings") renderSettings();
   if (name === "pi") loadPi();
+  if (name === "portfolio") {
+    loadPortfolio();
+    startPfPoll();
+  } else {
+    clearInterval(state.pfTimer);
+    state.pfTimer = null;
+  }
   if (name === "intel") {
     loadIntel();
     if (!state.sse) startIntelPoll();
@@ -110,7 +121,7 @@ async function boot() {
     bindUI();
     const sseOk = startSSE();
     const initialTab = location.hash.replace("#", "");
-    if (["scan", "intel", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
+    if (["scan", "portfolio", "intel", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
     if (!sseOk && state.cfg.scan?.running) pollScan();
     if (!sseOk) startEsiPoll();
 
@@ -1119,6 +1130,143 @@ function drawPlanet(canvas, colony) {
   }
 }
 
+// ------------------------------------------------------------------ портфель
+async function loadPortfolio(force = false) {
+  try {
+    const d = force
+      ? await api("/api/portfolio/refresh", { method: "POST", body: "{}" })
+      : await api("/api/portfolio");
+    state.portfolio = d;
+    renderPortfolio();
+  } catch (e) {
+    if (String(e.message).toLowerCase().includes("авториз")) {
+      $("#pfWho").textContent = "Нужен вход через EVE";
+      $("#pfCards").innerHTML = `<div class="card"><div class="card-label">Портфель</div><div class="muted small">Войдите через EVE, чтобы видеть ордера, P&L и склад.</div></div>`;
+    } else {
+      toast("Портфель: " + e.message, true);
+    }
+  }
+}
+
+function startPfPoll() {
+  clearInterval(state.pfTimer);
+  state.pfTimer = setInterval(() => {
+    if (document.querySelector("#tab-portfolio")?.classList.contains("active")) loadPortfolio();
+  }, 30_000);
+}
+
+function checkUndercuts(orders) {
+  const under = orders.filter((o) => o.undercut);
+  const current = new Set(under.map((o) => o.orderId));
+  if (!state.pfLoaded) {
+    state.pfSeen = current;
+    state.pfLoaded = true;
+    return;
+  }
+  const fresh = under.filter((o) => !state.pfSeen.has(o.orderId));
+  state.pfSeen = current;
+  if (!fresh.length) return;
+  playIntelSound();
+  showSimplePopup(
+    `Подрезали: ${fresh.length}`,
+    fresh
+      .slice(0, 3)
+      .map(
+        (o) =>
+          `<b>${esc(o.typeName)}</b> — ${o.isBuy ? "buy" : "sell"} ${isk(o.price)} · лучшая ${isk(
+            o.isBuy ? o.bestBid : o.bestAsk
+          )}`
+      ),
+    "portfolio"
+  );
+  toast(`Подрезали ордеров: ${fresh.length}`, true);
+}
+
+function renderPortfolio() {
+  const d = state.portfolio;
+  if (!d) return;
+  $("#pfWho").textContent = `${d.character.name} · ${isk(d.summary.wallet)} ISK`;
+  $("#pfMeta").textContent = new Date(d.generatedAt).toLocaleTimeString("ru-RU");
+
+  const s = d.summary;
+  $("#pfCards").innerHTML = [
+    card("Кошелёк", isk(s.wallet) + " ISK"),
+    card("В ордерах", isk(s.ordersValue) + " ISK", `эскроу ${isk(s.escrow)}`),
+    card("Склад", isk(s.inventoryValue) + " ISK"),
+    card("Реализовано", isk(s.realized) + " ISK", `куплено ${isk(s.boughtIsk)} · продано ${isk(s.soldIsk)}`),
+    card("Подрезано", String(s.undercut), "ордеров хуже рынка"),
+  ].join("");
+
+  const orders = [...(d.orders || [])].sort(
+    (a, b) => Number(b.undercut) - Number(a.undercut) || b.value - a.value
+  );
+  $("#pfOrdersCount").textContent = `${orders.length}`;
+  $("#pfOrders").innerHTML = orders.length
+    ? `<table class="intel-table"><thead><tr>
+        <th>Тип</th><th>Локация</th><th>Ордер</th><th class="num">Цена</th><th class="num">Лучшая</th>
+        <th class="num">Δ</th><th class="num">Остаток</th><th class="num">Стоимость</th><th>Статус</th>
+      </tr></thead><tbody>${orders
+        .map((o) => {
+          const best = o.isBuy ? o.bestBid : o.bestAsk;
+          const status = o.undercut
+            ? `<span class="badge bad">подрезан</span>`
+            : best
+            ? `<span class="badge good">первый</span>`
+            : `<span class="badge dim">нет данных</span>`;
+          return `<tr>
+            <td>${esc(o.typeName)}</td>
+            <td class="age">${esc(o.locationName)}</td>
+            <td>${o.isBuy ? "buy" : "sell"}</td>
+            <td class="num">${isk(o.price)}</td>
+            <td class="num">${best ? isk(best) : "—"}</td>
+            <td class="num">${best ? pct(o.deltaPct) : "—"}</td>
+            <td class="num">${fmt(o.volumeRemain)} / ${fmt(o.volumeTotal)}</td>
+            <td class="num">${isk(o.value)}</td>
+            <td>${status}</td>
+          </tr>`;
+        })
+        .join("")}</tbody></table>`
+    : `<div class="intel-empty">Активных ордеров нет.</div>`;
+
+  const pnl = (d.pnl || []).slice(0, 40);
+  $("#pfPnl").innerHTML = pnl.length
+    ? `<table class="intel-table"><thead><tr>
+        <th>Тип</th><th class="num">Куплено</th><th class="num">Продано</th><th class="num">Ср. покупка</th>
+        <th class="num">Ср. продажа</th><th class="num">P&L</th><th class="num">Остаток</th>
+      </tr></thead><tbody>${pnl
+        .map(
+          (r) => `<tr>
+            <td>${esc(r.typeName)}</td>
+            <td class="num">${fmt(r.boughtQty)}</td>
+            <td class="num">${fmt(r.soldQty)}</td>
+            <td class="num">${isk(r.avgBuy)}</td>
+            <td class="num">${isk(r.avgSell)}</td>
+            <td class="num">${isk(r.realized)}</td>
+            <td class="num">${fmt(r.costQty)}</td>
+          </tr>`
+        )
+        .join("")}</tbody></table>`
+    : `<div class="intel-empty">Транзакций нет.</div>`;
+
+  const inv = (d.inventory || []).slice(0, 30);
+  $("#pfInv").innerHTML = inv.length
+    ? `<table class="intel-table"><thead><tr>
+        <th>Тип</th><th class="num">Кол-во</th><th class="num">Цена (buy)</th><th class="num">Стоимость</th>
+      </tr></thead><tbody>${inv
+        .map(
+          (r) => `<tr>
+            <td>${esc(r.typeName)}</td>
+            <td class="num">${fmt(r.qty)}</td>
+            <td class="num">${isk(r.price)}</td>
+            <td class="num">${isk(r.value)}</td>
+          </tr>`
+        )
+        .join("")}</tbody></table>`
+    : `<div class="intel-empty">Склад пуст или нет цен.</div>`;
+
+  checkUndercuts(orders);
+}
+
 // ------------------------------------------------------------------ интел
 function fmtAge(sec) {
   if (sec === null || sec === undefined) return "—";
@@ -1197,6 +1345,29 @@ function showIntelPopup(rows) {
     }
     el.hidden = true;
     setTab("intel");
+  };
+}
+
+function showSimplePopup(title, lines, tab = "intel") {
+  const el = $("#intelPopup");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="ip-head">
+      <span class="ip-title">${esc(title)}</span>
+      <button class="ip-close" id="ipClose" title="закрыть">×</button>
+    </div>
+    ${lines.map((l) => `<div class="ip-item">${l}</div>`).join("")}
+    <div class="ip-foot">нажмите, чтобы открыть вкладку</div>`;
+  el.hidden = false;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => (el.hidden = true), 10000);
+  el.onclick = (e) => {
+    if (e.target.closest("#ipClose")) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = true;
+    setTab(tab);
   };
 }
 
@@ -1629,6 +1800,8 @@ function renderDiag(stats) {
 
 // ------------------------------------------------------------------ events
 function bindUI() {
+  $("#pfRefresh").onclick = () => loadPortfolio(true);
+
   $("#btnScan").onclick = startScan;
   $("#esiRetry").onclick = async () => {
     try {

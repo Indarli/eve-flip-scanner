@@ -30,6 +30,7 @@ import { loadCharacter as fetchCharacter, defaultFees } from "./lib/character.mj
 import { runScan } from "./lib/scan.mjs";
 import { analyzeColony, summarizePi } from "./lib/pi.mjs";
 import { IntelService } from "./lib/intel.mjs";
+import { markOrders, fetchQuotes, fetchTypeNames } from "./lib/portfolio.mjs";
 
 initDirs();
 
@@ -81,6 +82,80 @@ let scanState = {
 
 const intel = new IntelService({ esi, auth, getConfig: () => config, dataDir: DATA_DIR });
 intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
+
+let portfolioCache = { ts: 0, data: null };
+
+async function buildPortfolio() {
+  const ch = primaryCharacter();
+  if (!ch) return null;
+  if (portfolioCache.data && Date.now() - portfolioCache.ts < 60_000) return portfolioCache.data;
+
+  const orders = ch.ordersList || [];
+  const byLoc = new Map();
+  for (const o of orders) {
+    if (!byLoc.has(o.location_id)) byLoc.set(o.location_id, new Set());
+    byLoc.get(o.location_id).add(o.type_id);
+  }
+
+  const quoteMaps = new Map();
+  for (const [loc, ids] of byLoc) {
+    const hub = HUBS.find((h) => h.stationId === Number(loc));
+    const regionId = hub ? hub.regionId : 10000002;
+    quoteMaps.set(loc, await fetchQuotes({ stationId: loc, regionId, typeIds: [...ids] }));
+  }
+  const marked = markOrders(orders, (o) => quoteMaps.get(o.location_id)?.get(Number(o.type_id)));
+
+  const assetList = [...(ch.assetTotals || [])].sort((a, b) => b.qty - a.qty).slice(0, 300);
+  const assetQuotes = await fetchQuotes({ regionId: 10000002, typeIds: assetList.map((a) => a.typeId) });
+
+  const typeIds = [
+    ...new Set([
+      ...orders.map((o) => o.type_id),
+      ...assetList.map((a) => a.typeId),
+      ...(ch.transactionsStats?.rows || []).map((r) => r.typeId),
+    ]),
+  ];
+  const names = await fetchTypeNames(typeIds);
+  const nameOf = (id) => names.get(Number(id)) || `Type ${id}`;
+  const locName = (id) => {
+    const hub = HUBS.find((h) => h.stationId === Number(id));
+    if (hub) return hub.name;
+    const st = mergedStructures().find((s) => Number(s.id) === Number(id));
+    return st ? st.name : `#${id}`;
+  };
+
+  const inventory = assetList
+    .map((a) => {
+      const price = assetQuotes.get(a.typeId)?.bid || 0;
+      return { typeId: a.typeId, typeName: nameOf(a.typeId), qty: a.qty, price, value: price * a.qty };
+    })
+    .filter((x) => x.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  const ordersValue = marked.reduce((s, o) => s + o.value, 0);
+  const inventoryValue = inventory.reduce((s, x) => s + x.value, 0);
+  const tx = ch.transactionsStats || { rows: [], total: {} };
+
+  const result = {
+    character: { id: ch.characterId, name: ch.name, wallet: ch.wallet },
+    summary: {
+      wallet: ch.wallet,
+      escrow: ch.orders?.escrow || 0,
+      ordersValue,
+      inventoryValue,
+      realized: tx.total?.realized || 0,
+      boughtIsk: tx.total?.boughtIsk || 0,
+      soldIsk: tx.total?.soldIsk || 0,
+      undercut: marked.filter((o) => o.undercut).length,
+    },
+    orders: marked.map((o) => ({ ...o, typeName: nameOf(o.typeId), locationName: locName(o.locationId) })),
+    pnl: (tx.rows || []).map((r) => ({ ...r, typeName: nameOf(r.typeId) })).sort((a, b) => b.realized - a.realized),
+    inventory,
+    generatedAt: Date.now(),
+  };
+  portfolioCache = { ts: Date.now(), data: result };
+  return result;
+}
 
 // ---------------------------------------------------------------- SSE
 
@@ -288,6 +363,7 @@ async function refreshCharacter(characterId) {
     characters[profile.characterId] = profile;
     saveCharacters(characters);
     piOverview = null;
+    portfolioCache = { ts: 0, data: null };
     return profile;
   })().finally(() => refreshing.delete(characterId));
   refreshing.set(characterId, promise);
@@ -748,6 +824,23 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(req, res, 200, { ok: true, files, backups: listBackups().slice(0, 30) });
+      return;
+    }
+
+    if (pathname === "/api/portfolio" && req.method === "GET") {
+      const data = await buildPortfolio();
+      if (!data) {
+        sendJson(req, res, 401, { error: "Нет авторизованного персонажа" });
+        return;
+      }
+      sendJson(req, res, 200, data);
+      return;
+    }
+
+    if (pathname === "/api/portfolio/refresh" && req.method === "POST") {
+      portfolioCache = { ts: 0, data: null };
+      const data = await buildPortfolio();
+      sendJson(req, res, data ? 200 : 401, data || { error: "Нет авторизованного персонажа" });
       return;
     }
 

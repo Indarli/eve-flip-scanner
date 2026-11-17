@@ -17,6 +17,7 @@
     </div>
     <nav class="tabs" id="tabs">
       <button data-tab="scan" class="active">Сканер</button>
+      <button data-tab="portfolio">Портфель</button>
       <button data-tab="intel">Интел</button>
       <button data-tab="pi">Планетарка</button>
       <button data-tab="character">Персонажи</button>
@@ -90,6 +91,36 @@
           <div>Пока пусто. Нажмите «Сканировать рынок».</div>
           <div class="muted small">Первый скан качает стаканы всех выбранных хабов — это минута-две.</div>
         </div>
+      </div>
+    </section>
+
+    <!-- ================= ПОРТФЕЛЬ ================= -->
+    <section id="tab-portfolio" class="tab">
+      <div class="panel toolbar">
+        <div class="mono muted small" id="pfWho"></div>
+        <div class="spacer"></div>
+        <button class="btn small" id="pfRefresh">Обновить</button>
+        <span class="mono muted small" id="pfMeta"></span>
+      </div>
+
+      <div class="cards" id="pfCards"></div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Мои ордера</h3>
+          <span class="muted small" id="pfOrdersCount"></span>
+        </div>
+        <div id="pfOrders"></div>
+      </div>
+
+      <div class="panel">
+        <h3>P&L по типам (по транзакциям)</h3>
+        <div id="pfPnl"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Склад (топ-30 по стоимости)</h3>
+        <div id="pfInv"></div>
       </div>
     </section>
 
