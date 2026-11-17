@@ -101,7 +101,7 @@ function Show-Alert($items) {
   $types = @($top | ForEach-Object { $_.type } | Select-Object -Unique)
   if ($types -contains "zkb") { $head = "ZKB" }
   elseif ($types -contains "pi") { $head = "ПЛАНЕТАРКА" }
-  else { $head = "ИНТЕЛЬ" }
+  else { $head = "ИНТЕЛ" }
 
   $script:title.Text = "EVE FLIP · " + $head
   $lines = @()

@@ -1032,7 +1032,7 @@ function drawPlanet(canvas, colony) {
   }
 }
 
-// ------------------------------------------------------------------ интель
+// ------------------------------------------------------------------ интел
 function fmtAge(sec) {
   if (sec === null || sec === undefined) return "—";
   if (sec < 60) return `${Math.max(0, Math.round(sec))}с`;
@@ -1093,11 +1093,11 @@ function showIntelPopup(rows) {
   if (!el || !rows.length) return;
   el.innerHTML = `
     <div class="ip-head">
-      <span class="ip-title">ИНТЕЛЬ · ${rows.length} новых</span>
+      <span class="ip-title">ИНТЕЛ · ${rows.length} новых</span>
       <button class="ip-close" id="ipClose" title="закрыть">×</button>
     </div>
     ${rows.slice(0, 3).map(intelAlertLine).join("")}
-    <div class="ip-foot">нажмите, чтобы открыть вкладку «Интель»</div>`;
+    <div class="ip-foot">нажмите, чтобы открыть вкладку «Интел»</div>`;
   el.hidden = false;
   clearTimeout(el._t);
   el._t = setTimeout(() => (el.hidden = true), 10000);
@@ -1122,7 +1122,7 @@ function notifyIntel(rows) {
     rows.length > 1 ? ` (и ещё ${rows.length - 1})` : ""
   }`;
   try {
-    const n = new Notification(`Интель: ${first.jumps === 0 ? "у вас в системе" : `${first.jumps} прыжк.`}`, {
+    const n = new Notification(`Интел: ${first.jumps === 0 ? "у вас в системе" : `${first.jumps} прыжк.`}`, {
       body,
       tag: "eve-intel",
       renotify: true,
@@ -1270,7 +1270,7 @@ function showZkbPopup(rows) {
       <button class="ip-close" id="ipClose" title="закрыть">×</button>
     </div>
     ${rows.slice(0, 3).map(zkbAlertLine).join("")}
-    <div class="ip-foot">нажмите, чтобы открыть вкладку «Интель»</div>`;
+    <div class="ip-foot">нажмите, чтобы открыть вкладку «Интел»</div>`;
   el.hidden = false;
   clearTimeout(el._t);
   el._t = setTimeout(() => (el.hidden = true), 10000);
@@ -1392,7 +1392,7 @@ async function loadIntel() {
     state.intel = await api("/api/intel/state");
     renderIntel();
   } catch (e) {
-    toast("Интель: " + e.message, true);
+    toast("Интел: " + e.message, true);
   }
 }
 
@@ -1530,7 +1530,7 @@ function bindUI() {
     cb.closest(".pi-row")?.classList.toggle("done", cb.checked);
   });
 
-  // --- интель ---
+  // --- интел ---
   $("#intelThreshold").oninput = (e) => {
     $("#intelThresholdVal").textContent = e.target.value;
   };

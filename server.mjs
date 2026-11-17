@@ -934,7 +934,7 @@ const server = http.createServer(async (req, res) => {
           id: `intel:${a.key}`,
           type: "intel",
           ts: a.ts,
-          title: `Интель · ${a.jumps} пр.`,
+          title: `Интел · ${a.jumps} пр.`,
           text: `${names}${a.extra ? ` +${a.extra}` : ""} — ${a.systemName || "?"}${
             a.regionName ? ` (${a.regionName})` : ""
           }${a.ship ? ` · ${a.ship}` : ""}`,
