@@ -34,6 +34,7 @@ const state = {
   pfTimer: null,
   pfSeen: new Set(),
   pfLoaded: false,
+  pfChar: localStorage.getItem("eveflip.pf.char") || "",
   intelSort: { key: "ageSec", dir: "asc" }, // «Когда»: сверху самое новое
 };
 
@@ -1299,9 +1300,13 @@ function drawPlanet(canvas, colony) {
 // ------------------------------------------------------------------ портфель
 async function loadPortfolio(force = false) {
   try {
+    const q = state.pfChar ? `?char=${encodeURIComponent(state.pfChar)}` : "";
     const d = force
-      ? await api("/api/portfolio/refresh", { method: "POST", body: "{}" })
-      : await api("/api/portfolio");
+      ? await api("/api/portfolio/refresh", {
+          method: "POST",
+          body: JSON.stringify({ characterId: state.pfChar || undefined }),
+        })
+      : await api("/api/portfolio" + q);
     state.portfolio = d;
     renderPortfolio();
   } catch (e) {
@@ -1351,6 +1356,21 @@ function checkUndercuts(orders) {
 function renderPortfolio() {
   const d = state.portfolio;
   if (!d) return;
+
+  const chars = state.characters || [];
+  if (!state.pfChar && chars[0]) state.pfChar = String(chars[0].characterId || chars[0].id || "");
+  const chips = $("#pfChars");
+  if (chips) {
+    chips.innerHTML = chars
+      .map((c) => {
+        const id = String(c.characterId || c.id || "");
+        return `<button class="chip ${id === String(state.pfChar) ? "active" : ""}" data-pfchar="${id}">${esc(
+          c.name || id
+        )}</button>`;
+      })
+      .join("");
+  }
+
   $("#pfWho").textContent = `${d.character.name} · ${isk(d.summary.wallet)} ISK`;
   $("#pfMeta").textContent = new Date(d.generatedAt).toLocaleTimeString("ru-RU");
 
@@ -1998,6 +2018,15 @@ function bindUI() {
   };
 
   $("#pfRefresh").onclick = () => loadPortfolio(true);
+  $("#pfChars").onclick = (e) => {
+    const b = e.target.closest("[data-pfchar]");
+    if (!b) return;
+    state.pfChar = b.dataset.pfchar;
+    localStorage.setItem("eveflip.pf.char", state.pfChar);
+    state.pfLoaded = false;
+    state.pfSeen = new Set();
+    loadPortfolio(true);
+  };
 
   $("#btnScan").onclick = startScan;
   $("#esiRetry").onclick = async () => {

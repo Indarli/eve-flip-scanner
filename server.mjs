@@ -85,7 +85,7 @@ let scanState = {
 const intel = new IntelService({ esi, auth, getConfig: () => config, dataDir: DATA_DIR });
 intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
 
-let portfolioCache = { ts: 0, data: null };
+const portfolioCaches = new Map();
 const compareCache = new Map();
 const locationCache = new Map();
 
@@ -148,10 +148,11 @@ async function locationInfo(locationId, characterId) {
   return info;
 }
 
-async function buildPortfolio() {
-  const ch = primaryCharacter();
+async function buildPortfolio(characterId) {
+  const ch = (characterId && characters[characterId]) || primaryCharacter();
   if (!ch) return null;
-  if (portfolioCache.data && Date.now() - portfolioCache.ts < 60_000) return portfolioCache.data;
+  const cached = portfolioCaches.get(ch.characterId);
+  if (cached && Date.now() - cached.ts < 60_000) return cached.data;
 
   const orders = ch.ordersList || [];
   const byLoc = new Map();
@@ -245,7 +246,7 @@ async function buildPortfolio() {
     inventory,
     generatedAt: Date.now(),
   };
-  portfolioCache = { ts: Date.now(), data: result };
+  portfolioCaches.set(ch.characterId, { ts: Date.now(), data: result });
   return result;
 }
 
@@ -455,7 +456,7 @@ async function refreshCharacter(characterId) {
     characters[profile.characterId] = profile;
     saveCharacters(characters);
     piOverview = null;
-    portfolioCache = { ts: 0, data: null };
+    portfolioCaches.delete(profile.characterId);
     return profile;
   })().finally(() => refreshing.delete(characterId));
   refreshing.set(characterId, promise);
@@ -920,7 +921,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/portfolio" && req.method === "GET") {
-      const data = await buildPortfolio();
+      const char = Number(url.searchParams.get("char")) || null;
+      const data = await buildPortfolio(char);
       if (!data) {
         sendJson(req, res, 401, { error: "Нет авторизованного персонажа" });
         return;
@@ -930,8 +932,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/portfolio/refresh" && req.method === "POST") {
-      portfolioCache = { ts: 0, data: null };
-      const data = await buildPortfolio();
+      const body = await readBody(req).catch(() => ({}));
+      const char = Number(body.characterId) || Number(url.searchParams.get("char")) || null;
+      if (char) portfolioCaches.delete(char);
+      else portfolioCaches.clear();
+      const data = await buildPortfolio(char);
       sendJson(req, res, data ? 200 : 401, data || { error: "Нет авторизованного персонажа" });
       return;
     }
