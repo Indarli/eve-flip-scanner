@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import { exec } from "node:child_process";
 import { URL } from "node:url";
 
 import {
@@ -971,4 +972,7 @@ const host = process.env.HOST || config.server?.host || "127.0.0.1";
 server.listen(port, host, () => {
   console.log(`EVE Flip Scanner: http://${host}:${port}`);
   console.log(`Callback URL для приложения EVE: ${auth.redirectUri()}`);
+  if (process.env.OPEN_BROWSER === "1" && process.platform === "win32") {
+    exec(`start "" "http://${host}:${port}"`);
+  }
 });
