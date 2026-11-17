@@ -653,22 +653,6 @@ async function openItem(key) {
     <div class="sub">${esc(row.locationName)} · ${row.kind === "structure" ? "структура" : "NPC-хаб"} · type ${row.typeId}
       ${d.type?.volume ? ` · ${d.type.volume} м³` : ""}${d.type?.groupName ? ` · ${esc(d.type.groupName)}` : ""}</div>
 
-    <div class="hint-box">
-      <div class="hint-title">Подсказка</div>
-      <ol class="hint-list">
-        <li>Поставь <b>buy-ордер</b> на <b>${isk(row.bid)}</b> — это цена, по которой ты покупаешь.</li>
-        <li>Купи примерно <b>${fmt(qty)} шт</b>. Понадобится <b>${isk(row.capital)} ISK</b>.</li>
-        <li>Сразу выставь <b>sell-ордер</b> на <b>${isk(row.exitPrice, 4)}</b> — это цена, по которой ты продаёшь.</li>
-        <li>Жди около <b>${Number.isFinite(row.daysToSell) ? row.daysToSell.toFixed(1) : "—"} дн.</b>.
-            Ожидаемая прибыль ≈ <b>${isk(row.profitUnit * qty)} ISK</b> (${isk(row.iskDay)}/день) — комиссии уже учтены.</li>
-        <li>Не продавай ниже <b>${isk(row.breakEvenAsk, 4)}</b> — ниже этой цены будешь в убытке.</li>
-      </ol>
-      <div class="hint-note">
-        Если buy-ордер не исполняется за сутки — подними цену на один шаг.
-        Конкуренция: ${row.competition} ордеров, объём/день: ${fmt(row.volumeDay)} шт.
-      </div>
-    </div>
-
     <div class="kv">
       <div class="k">Buy / Sell</div><div class="v">${isk(row.bid)} / ${isk(row.ask)}</div>
       <div class="k">Спред (грязный)</div><div class="v">${pct(row.spreadPct)}</div>
@@ -714,6 +698,22 @@ async function openItem(key) {
       Примерно ${fmt(qty)} шт, вложение ${isk(row.capital)} ISK,
       ожидаемо ${isk(row.iskDay)} ISK/день при обороте ~${Number.isFinite(row.daysToSell) ? row.daysToSell.toFixed(1) : "—"} дн.
       <br>Чтобы просто выйти в ноль, средняя цена продажи должна быть не ниже ${isk(row.breakEvenAsk)}.
+    </div>
+
+    <div class="hint-box">
+      <div class="hint-title">Подсказка</div>
+      <ol class="hint-list">
+        <li>Поставь <b>buy-ордер</b> на <b>${isk(row.bid)}</b> — это цена, по которой ты покупаешь.</li>
+        <li>Купи примерно <b>${fmt(qty)} шт</b>. Понадобится <b>${isk(row.capital)} ISK</b>.</li>
+        <li>Сразу выставь <b>sell-ордер</b> на <b>${isk(row.exitPrice, 4)}</b> — это цена, по которой ты продаёшь.</li>
+        <li>Жди около <b>${Number.isFinite(row.daysToSell) ? row.daysToSell.toFixed(1) : "—"} дн.</b>.
+            Ожидаемая прибыль ≈ <b>${isk(row.profitUnit * qty)} ISK</b> (${isk(row.iskDay)}/день) — комиссии уже учтены.</li>
+        <li>Не продавай ниже <b>${isk(row.breakEvenAsk, 4)}</b> — ниже этой цены будешь в убытке.</li>
+      </ol>
+      <div class="hint-note">
+        Если buy-ордер не исполняется за сутки — подними цену на один шаг.
+        Конкуренция: ${row.competition} ордеров, объём/день: ${fmt(row.volumeDay)} шт.
+      </div>
     </div>
   `;
 
