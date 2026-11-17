@@ -1020,6 +1020,14 @@ const server = http.createServer(async (req, res) => {
 const port = Number(process.env.PORT) || Number(config.server?.port) || 8787;
 const host = process.env.HOST || config.server?.host || "127.0.0.1";
 
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`Порт ${port} уже занят — возможно, сервер уже запущен: http://${host}:${port}`);
+    process.exit(0);
+  }
+  throw err;
+});
+
 server.listen(port, host, () => {
   console.log(`EVE Flip Scanner: http://${host}:${port}`);
   console.log(`Callback URL для приложения EVE: ${auth.redirectUri()}`);

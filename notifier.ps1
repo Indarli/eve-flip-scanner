@@ -18,6 +18,11 @@ if ($Once) {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# один экземпляр нотификатора
+$createdNew = $false
+$script:mutex = New-Object System.Threading.Mutex($true, "Local\EveFlipNotifier", [ref]$createdNew)
+if (-not $createdNew) { exit 0 }
+
 $script:seen = @{}
 $script:firstPoll = $true
 $script:startTime = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
