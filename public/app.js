@@ -1729,14 +1729,17 @@ function zkbRowHtml(z) {
         z.systemName
       )}</a>`
     : `<span class="muted">—</span>`;
+  const ship = z.ship
+    ? `<a href="${z.key}" target="_blank" rel="noreferrer" title="открыть килл на zKillboard">${esc(z.ship)}</a>`
+    : `<span class="muted">—</span>`;
   return `<tr>
-    <td>${name} <span class="badge ${z.isLoss ? "bad" : "good"}">${z.isLoss ? "убит" : "убил"}</span></td>
-    <td class="ship">${z.ship ? esc(z.ship) : `<span class="muted">—</span>`}</td>
+    <td>${name} <span class="badge bad">убит</span></td>
+    <td class="ship">${ship}</td>
     <td>${sys}</td>
     <td class="age">${z.regionName ? esc(z.regionName) : "—"}</td>
     <td class="num"><span class="jumps ${cls}">${z.jumps}</span></td>
     <td class="age">${fmtAge(z.ageSec)}</td>
-    <td><a href="${z.key}" target="_blank" rel="noreferrer">zkb</a></td>
+    <td><a href="${z.key}" target="_blank" rel="noreferrer">килл</a></td>
   </tr>`;
 }
 
@@ -1747,11 +1750,11 @@ function zkbTable(list) {
 }
 
 function zkbAlertLine(z) {
-  return `<div class="ip-item"><b>${esc(z.name)}</b> <span class="badge ${z.isLoss ? "bad" : "good"}">${
-    z.isLoss ? "убит" : "убил"
-  }</span> — <span class="ip-sys">${esc(z.systemName || "?")}</span>${
-    z.regionName ? ` (${esc(z.regionName)})` : ""
-  } · <span class="ip-jumps">${z.jumps} пр.</span>${z.ship ? ` · ${esc(z.ship)}` : ""}</div>`;
+  return `<div class="ip-item"><b>${esc(z.name)}</b> <span class="badge bad">убит</span> — <span class="ip-sys">${esc(
+    z.systemName || "?"
+  )}</span>${z.regionName ? ` (${esc(z.regionName)})` : ""} · <span class="ip-jumps">${z.jumps} пр.</span>${
+    z.ship ? ` · ${esc(z.ship)}` : ""
+  }</div>`;
 }
 
 function showZkbPopup(rows) {
@@ -1946,10 +1949,10 @@ function renderIntel() {
   setHtmlCached("#intelPilots", pilots.length ? intelTable(pilots) : `<div class="intel-empty">Нет упоминаний.</div>`);
 
   const zkb = d.zkb || [];
-  $("#intelZkbCount").textContent = `${zkb.length}`;
+  $("#intelZkbCount").textContent = `${zkb.length} за 30 мин`;
   setHtmlCached(
     "#intelZkb",
-    zkb.length ? zkbTable(zkb) : `<div class="intel-empty">Подтверждённых записей zKill в радиусе нет.</div>`
+    zkb.length ? zkbTable(zkb) : `<div class="intel-empty">За последние 30 минут убитых в радиусе нет.</div>`
   );
 
   checkIntelAlerts(alerts);

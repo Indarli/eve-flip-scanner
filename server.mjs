@@ -1351,7 +1351,7 @@ const server = http.createServer(async (req, res) => {
           id: `zkb:${z.key}`,
           type: "zkb",
           ts: Date.parse(z.time) || nowMs,
-          title: `ZKB · ${z.isLoss ? "убит" : "убил"}`,
+          title: `ZKB · убит`,
           text: `${z.name}${z.ship ? ` (${z.ship})` : ""} — ${z.systemName || "?"}${
             z.regionName ? ` (${z.regionName})` : ""
           } · ${z.jumps} пр.`,

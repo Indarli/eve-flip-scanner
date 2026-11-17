@@ -67,6 +67,41 @@ test("ники, +N и корабль из текста; тип не станов
   assert.equal(svc.pilots.has("deluge"), false);
 });
 
+test("ZKB рядом: только потери за последние 30 минут", async () => {
+  const svc = makeSvc();
+  svc.systems = new Map([
+    [30000142, { id: 30000142, name: "Jita" }],
+    [30002187, { id: 30002187, name: "Amarr" }],
+  ]);
+  svc.own = new Map([[1, { id: 1, name: "Me", systemId: 30000142, systemName: "Jita", online: true }]]);
+  svc.routeCache.set("30000142:30002187", { jumps: 2, ts: Date.now() });
+
+  const now = Date.now();
+  const link = (n) => `https://zkillboard.com/kill/${n}/`;
+  svc.pilots.set("loss pilot", {
+    name: "Loss Pilot",
+    id: 2,
+    ts: now,
+    zkill: { link: link(1), isLoss: true, time: new Date(now - 10 * 60000).toISOString(), systemId: 30002187, shipName: "Rifter" },
+  });
+  svc.pilots.set("kill pilot", {
+    name: "Kill Pilot",
+    id: 3,
+    ts: now,
+    zkill: { link: link(2), isLoss: false, time: new Date(now - 10 * 60000).toISOString(), systemId: 30002187, shipName: "Loki" },
+  });
+  svc.pilots.set("old loss", {
+    name: "Old Loss",
+    id: 4,
+    ts: now,
+    zkill: { link: link(3), isLoss: true, time: new Date(now - 40 * 60000).toISOString(), systemId: 30002187, shipName: "Hulk" },
+  });
+
+  const s = await svc.snapshot();
+  assert.deepEqual(s.zkb.map((z) => z.name), ["Loss Pilot"]);
+  assert.equal(s.zkb[0].isLoss, true);
+});
+
 test("корабль не подставляется, если его не было в тексте", () => {
   const svc = makeSvc();
   svc.resolveCache.set("pilot one", {
