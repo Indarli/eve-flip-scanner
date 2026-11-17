@@ -3,6 +3,16 @@
 $ErrorActionPreference = "SilentlyContinue"
 $base = "http://127.0.0.1:8787"
 
+$logDir = Join-Path $PSScriptRoot "data\logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$logFile = Join-Path $logDir "notifier.log"
+function Write-Log($msg) {
+  try {
+    Add-Content -LiteralPath $logFile -Value ("{0} {1}" -f (Get-Date).ToString("o"), $msg) -Encoding UTF8
+  } catch { }
+}
+Write-Log "start pid=$PID"
+
 if ($Once) {
   try {
     $r = Invoke-RestMethod -Uri "$base/api/notifier/alerts" -TimeoutSec 15
@@ -17,6 +27,11 @@ if ($Once) {
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+[System.Windows.Forms.Application]::add_ThreadException({
+  param($sender, $e)
+  Write-Log ("ThreadException: " + $e.Exception.Message)
+})
 
 # один экземпляр нотификатора (кроме диагностических режимов)
 if (-not $Dump) {
@@ -120,22 +135,27 @@ function Format-Item($it) {
 }
 
 function Show-Alert($items) {
-  $top = @($items | Sort-Object ts -Descending | Select-Object -First 3)
-  $types = @($top | ForEach-Object { $_.type } | Select-Object -Unique)
-  if ($types -contains "zkb") { $head = "ZKB" }
-  elseif ($types -contains "pi") { $head = "ПЛАНЕТАРКА" }
-  else { $head = "ИНТЕЛ" }
+  try {
+    Write-Log ("show " + @($items).Count + " items: " + ((@($items) | ForEach-Object { $_.type }) -join ","))
+    $top = @($items | Sort-Object ts -Descending | Select-Object -First 3)
+    $types = @($top | ForEach-Object { $_.type } | Select-Object -Unique)
+    if ($types -contains "zkb") { $head = "ZKB" }
+    elseif ($types -contains "pi") { $head = "ПЛАНЕТАРКА" }
+    else { $head = "ИНТЕЛ" }
 
-  $script:title.Text = "EVE FLIP · " + $head
-  $blocks = @()
-  foreach ($it in $top) { $blocks += (Format-Item $it) }
-  $script:body.Text = ($blocks -join "`r`n`r`n")
+    $script:title.Text = "EVE FLIP · " + $head
+    $blocks = @()
+    foreach ($it in $top) { $blocks += (Format-Item $it) }
+    $script:body.Text = ($blocks -join "`r`n`r`n")
 
-  $form.Show()
-  $form.BringToFront()
-  $script:hideTimer.Stop()
-  $script:hideTimer.Start()
-  Play-Sound
+    $form.Show()
+    $form.BringToFront()
+    $script:hideTimer.Stop()
+    $script:hideTimer.Start()
+    Play-Sound
+  } catch {
+    Write-Log ("Show-Alert error: " + $_.Exception.Message)
+  }
 }
 
 function Poll {
@@ -144,18 +164,22 @@ function Poll {
   } catch {
     return
   }
-  $items = @($r.items)
-  $wasFirst = $script:firstPoll
-  $script:firstPoll = $false
-  if (-not $items.Count) { return }
+  try {
+    $items = @($r.items)
+    $wasFirst = $script:firstPoll
+    $script:firstPoll = $false
+    if (-not $items.Count) { return }
 
-  $new = @()
-  foreach ($it in $items) {
-    if ($script:seen.ContainsKey($it.id)) { continue }
-    $script:seen[$it.id] = $true
-    if (-not $wasFirst -and [double]$it.ts -gt ($script:startTime - 120000)) { $new += $it }
+    $new = @()
+    foreach ($it in $items) {
+      if ($script:seen.ContainsKey($it.id)) { continue }
+      $script:seen[$it.id] = $true
+      if (-not $wasFirst -and [double]$it.ts -gt ($script:startTime - 120000)) { $new += $it }
+    }
+    if ($new.Count -gt 0) { Show-Alert $new }
+  } catch {
+    Write-Log ("Poll render error: " + $_.Exception.Message)
   }
-  if ($new.Count -gt 0) { Show-Alert $new }
 }
 
 $script:pollTimer = New-Object System.Windows.Forms.Timer
