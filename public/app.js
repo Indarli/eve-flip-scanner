@@ -1172,7 +1172,9 @@ function intelAlertLine(a) {
   const region = a.regionName ? ` (${a.regionName})` : "";
   return `<div class="ip-item"><b>${esc(names || "?")}</b>${extra} — <span class="ip-sys">${esc(sys)}</span>${esc(
     region
-  )} · <span class="ip-jumps">${a.jumps} пр.</span>${a.ship ? ` · ${esc(a.ship)}` : ""}</div>`;
+  )} · <span class="ip-jumps">${a.jumps} пр.</span>${a.ship ? ` · ${esc(a.ship)}` : ""}${
+    a.trend === "toward" ? " · к вам" : a.trend === "away" ? " · от вас" : ""
+  }</div>`;
 }
 
 function showIntelPopup(rows) {
@@ -1259,10 +1261,16 @@ function intelRow(p) {
       )}</a>`
     : `<span class="muted">—</span>`;
   const ship = p.ship ? esc(p.ship) : `<span class="muted">—</span>`;
+  const trend =
+    p.trend === "toward"
+      ? `<span class="trend toward">→ к вам</span>`
+      : p.trend === "away"
+      ? `<span class="trend away">← от вас</span>`
+      : "";
   return `<tr>
     <td><div class="intel-names">${names}</div>${extra}</td>
     <td class="ship">${ship}</td>
-    <td>${sys}</td>
+    <td>${sys}${trend}</td>
     <td class="age">${p.regionName ? esc(p.regionName) : "—"}</td>
     <td class="num"><span class="jumps ${cls}">${j === null || j === undefined ? "?" : j}</span></td>
     <td class="age">${p.nearest ? esc(p.nearest) : "—"}</td>

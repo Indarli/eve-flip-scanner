@@ -373,6 +373,9 @@ code {
 .intel-table .ship { color: var(--muted); }
 .intel-names { max-width: 420px; white-space: normal; line-height: 1.35; }
 .intel-extra { color: var(--warn); font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+.trend { font-size: 11px; margin-left: 6px; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
+.trend.toward { color: #ffb27a; background: rgba(255, 140, 60, .12); }
+.trend.away { color: var(--muted); background: rgba(120, 165, 225, .08); }
 .intel-table .age { color: var(--muted); font-size: 12px; }
 
 .jumps { display: inline-block; min-width: 30px; text-align: center; padding: 2px 7px; border-radius: 5px; font-family: var(--mono); font-size: 12px; }

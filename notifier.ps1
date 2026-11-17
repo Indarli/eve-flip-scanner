@@ -110,6 +110,8 @@ function Format-Item($it) {
     if ($it.region) { $where = $where + " (" + $it.region + ")" }
     $meta = $where + " · " + [string]$it.jumps + " пр."
     if ($it.ship) { $meta = $meta + " · " + [string]$it.ship }
+    if ($it.trend -eq "toward") { $meta = $meta + " · к вам" }
+    elseif ($it.trend -eq "away") { $meta = $meta + " · от вас" }
     $lines += $meta
     if ($it.type -eq "zkb") { $lines = @([string]$it.title) + $lines }
     return ($lines -join "`r`n")

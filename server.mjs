@@ -1078,13 +1078,16 @@ const server = http.createServer(async (req, res) => {
           title: `Интел · ${a.jumps} пр.`,
           text: `${names}${a.extra ? ` +${a.extra}` : ""} — ${a.systemName || "?"}${
             a.regionName ? ` (${a.regionName})` : ""
-          }${a.ship ? ` · ${a.ship}` : ""}`,
+          }${a.ship ? ` · ${a.ship}` : ""}${
+            a.trend === "toward" ? " · движется к вам" : a.trend === "away" ? " · уходит" : ""
+          }`,
           names: (a.names || []).map((n) => n.name),
           extra: a.extra || 0,
           system: a.systemName || null,
           region: a.regionName || null,
           jumps: a.jumps,
           ship: a.ship || null,
+          trend: a.trend || null,
         });
       }
 
