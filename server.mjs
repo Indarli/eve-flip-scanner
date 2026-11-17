@@ -937,7 +937,7 @@ const server = http.createServer(async (req, res) => {
           title: `Интель · ${a.jumps} пр.`,
           text: `${names}${a.extra ? ` +${a.extra}` : ""} — ${a.systemName || "?"}${
             a.regionName ? ` (${a.regionName})` : ""
-          }`,
+          }${a.ship ? ` · ${a.ship}` : ""}`,
         });
       }
 

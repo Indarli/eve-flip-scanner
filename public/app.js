@@ -1085,7 +1085,7 @@ function intelAlertLine(a) {
   const region = a.regionName ? ` (${a.regionName})` : "";
   return `<div class="ip-item"><b>${esc(names || "?")}</b>${extra} — <span class="ip-sys">${esc(sys)}</span>${esc(
     region
-  )} · <span class="ip-jumps">${a.jumps} пр.</span></div>`;
+  )} · <span class="ip-jumps">${a.jumps} пр.</span>${a.ship ? ` · ${esc(a.ship)}` : ""}</div>`;
 }
 
 function showIntelPopup(rows) {
@@ -1118,7 +1118,9 @@ function notifyIntel(rows) {
   const names = (first.names || []).map((n) => n.name).join(", ");
   const extra = first.extra ? ` +${first.extra}` : "";
   const where = `${first.systemName || "?"}${first.regionName ? ` (${first.regionName})` : ""}`;
-  const body = `${names}${extra} — ${where}, ${first.jumps} пр.${rows.length > 1 ? ` (и ещё ${rows.length - 1})` : ""}`;
+  const body = `${names}${extra} — ${where}, ${first.jumps} пр.${first.ship ? ` · ${first.ship}` : ""}${
+    rows.length > 1 ? ` (и ещё ${rows.length - 1})` : ""
+  }`;
   try {
     const n = new Notification(`Интель: ${first.jumps === 0 ? "у вас в системе" : `${first.jumps} прыжк.`}`, {
       body,
