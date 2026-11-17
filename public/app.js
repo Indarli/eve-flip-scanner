@@ -1945,6 +1945,13 @@ async function loadBackups() {
 
 function renderSettings() {
   if (!state.cfg) return;
+  if ($("#aboutBox")) {
+    const v = esc(state.cfg.version || "—");
+    const ai = state.cfg.ai || { agent: "DeepSeek Harness", model: "deepseek-flash" };
+    $("#aboutBox").innerHTML = `EVE Flip Scanner <b>v${v}</b> · создано с ИИ: ${esc(ai.agent)} / ${esc(
+      ai.model
+    )} · <a href="https://github.com/Indarli/eve-flip-scanner" target="_blank" rel="noreferrer">GitHub</a>`;
+  }
   const ac = autoCfg();
   if ($("#autoScanEnabled")) {
     $("#autoScanEnabled").checked = ac.enabled;

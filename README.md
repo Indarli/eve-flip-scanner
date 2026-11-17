@@ -4,6 +4,21 @@
 игровых структур через ESI, расчёт прибыли после комиссий, веб-интерфейс в браузере.
 
 ![Node](https://img.shields.io/badge/node-%3E%3D20-3fc3ea)
+![version](https://img.shields.io/badge/version-2.0.0-48c9f0)
+![AI](https://img.shields.io/badge/created%20with-AI%20%C2%B7%20DeepSeek%20Harness-ffb27a)
+
+## О проекте
+
+- **Версия:** 2.0.0 · 17 ноября 2026
+- **Как создан:** проект разработан в диалоге с ИИ-агентом **DeepSeek Harness** (модель **deepseek-flash**):
+  архитектура, код, отладка, тесты и документация.
+- **Автор идеи и постановки задач:** Indarli.
+- **Стек:** Node.js 20+ (ESM, без внешних зависимостей), встроенный HTTP-сервер, ванильные HTML/CSS/JS,
+  ESI + EVE SSO, zKillboard, Fuzzwork aggregates.
+- **Репозиторий:** <https://github.com/Indarli/eve-flip-scanner>
+
+> GitHub не хранит отдельного поля «сделано ИИ», поэтому отметка продублирована
+> в описании репозитория и теме `ai-generated`.
 
 ## Что умеет
 

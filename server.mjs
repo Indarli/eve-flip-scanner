@@ -1,5 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
+
+const pkg = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 import path from "node:path";
 import zlib from "node:zlib";
 import { exec } from "node:child_process";
@@ -802,7 +804,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- API ----
     if (pathname === "/api/health") {
-      sendJson(req, res, 200, { ok: true, time: new Date().toISOString() });
+      sendJson(req, res, 200, { ok: true, version: pkg.version, ai: pkg.ai || null, time: new Date().toISOString() });
       return;
     }
 
@@ -922,6 +924,8 @@ const server = http.createServer(async (req, res) => {
         fees: primaryCharacter()?.fees || { source: "default", tax: defaultFees().tax, broker: defaultFees().broker, hubs: {} },
         esiStats: esi.stats,
         esiStatus: esi.status(),
+        version: pkg.version,
+        ai: pkg.ai || null,
       });
       return;
     }
