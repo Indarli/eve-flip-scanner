@@ -1417,16 +1417,22 @@ function renderPortfolio() {
   const inv = (d.inventory || []).slice(0, 30);
   $("#pfInv").innerHTML = inv.length
     ? `<table class="intel-table"><thead><tr>
-        <th>Тип</th><th class="num">Кол-во</th><th class="num">Цена (buy)</th><th class="num">Стоимость</th>
+        <th>Тип</th><th>Местонахождение</th><th class="num">Кол-во</th><th class="num">Цена (buy)</th><th class="num">Стоимость</th>
       </tr></thead><tbody>${inv
-        .map(
-          (r) => `<tr>
+        .map((r) => {
+          const place = r.locationName
+            ? `${esc(r.locationName)}${r.systemName ? ` · ${esc(r.systemName)}` : ""}`
+            : r.locationId
+            ? `<span class="muted">структура #${r.locationId}</span>`
+            : `<span class="muted">—</span>`;
+          return `<tr>
             <td>${esc(r.typeName)}</td>
+            <td class="age">${place}</td>
             <td class="num">${fmt(r.qty)}</td>
             <td class="num">${isk(r.price)}</td>
             <td class="num">${isk(r.value)}</td>
-          </tr>`
-        )
+          </tr>`;
+        })
         .join("")}</tbody></table>`
     : `<div class="intel-empty">Склад пуст или нет цен.</div>`;
 

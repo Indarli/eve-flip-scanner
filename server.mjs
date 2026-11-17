@@ -87,6 +87,66 @@ intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
 
 let portfolioCache = { ts: 0, data: null };
 const compareCache = new Map();
+const locationCache = new Map();
+
+function withTimeout(promise, ms, fallback = null) {
+  return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+}
+
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++;
+      out[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+async function locationInfo(locationId, characterId) {
+  const id = Number(locationId);
+  if (!id) return { name: null, systemName: null };
+  const hit = locationCache.get(id);
+  if (hit && Date.now() - hit.ts < 6 * 3600_000) return hit;
+
+  let name = null;
+  let systemName = null;
+  try {
+    if (id < 1e12) {
+      const st = await esi.get(`/universe/stations/${id}/`);
+      name = st?.name || null;
+      if (st?.system_id) {
+        const sys = await esi.get(`/universe/systems/${st.system_id}/`);
+        systemName = sys?.name || null;
+      }
+    } else {
+      // сначала смотрим в известных структурах (конфиг/профиль персонажа)
+      const known = mergedStructures().find((s) => Number(s.id) === id);
+      if (known?.name) {
+        name = known.name;
+        if (known.systemId) {
+          const sys = await withTimeout(esi.get(`/universe/systems/${known.systemId}/`), 3000);
+          systemName = sys?.name || null;
+        }
+      } else {
+        const st = await esi.get(`/universe/structures/${id}/`, { auth: characterId });
+        name = st?.name || null;
+        if (st?.system_id) {
+          const sys = await withTimeout(esi.get(`/universe/systems/${st.system_id}/`), 3000);
+          systemName = sys?.name || null;
+        }
+      }
+    }
+  } catch {
+    /* структура может быть недоступна */
+  }
+  const info = { name, systemName, ts: Date.now() };
+  locationCache.set(id, info);
+  return info;
+}
 
 async function buildPortfolio() {
   const ch = primaryCharacter();
@@ -108,13 +168,24 @@ async function buildPortfolio() {
   }
   const marked = markOrders(orders, (o) => quoteMaps.get(o.location_id)?.get(Number(o.type_id)));
 
-  const assetList = [...(ch.assetTotals || [])].sort((a, b) => b.qty - a.qty).slice(0, 300);
-  const assetQuotes = await fetchQuotes({ regionId: 10000002, typeIds: assetList.map((a) => a.typeId) });
+  const stacks = (ch.assetStacks || []).filter((s) => s.qty > 0);
+  const baseStacks = stacks.length
+    ? stacks
+    : (ch.assetTotals || []).map((a) => ({ typeId: a.typeId, locationId: null, qty: a.qty }));
+
+  const typeTotals = new Map();
+  for (const s of baseStacks) typeTotals.set(s.typeId, (typeTotals.get(s.typeId) || 0) + s.qty);
+  const pricedTypes = [...typeTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 300)
+    .map(([id]) => id);
+  const pricedSet = new Set(pricedTypes);
+  const assetQuotes = await fetchQuotes({ regionId: 10000002, typeIds: pricedTypes });
 
   const typeIds = [
     ...new Set([
       ...orders.map((o) => o.type_id),
-      ...assetList.map((a) => a.typeId),
+      ...pricedTypes,
       ...(ch.transactionsStats?.rows || []).map((r) => r.typeId),
     ]),
   ];
@@ -127,13 +198,31 @@ async function buildPortfolio() {
     return st ? st.name : `#${id}`;
   };
 
-  const inventory = assetList
-    .map((a) => {
-      const price = assetQuotes.get(a.typeId)?.bid || 0;
-      return { typeId: a.typeId, typeName: nameOf(a.typeId), qty: a.qty, price, value: price * a.qty };
+  const inventoryRaw = baseStacks
+    .filter((s) => pricedSet.has(s.typeId))
+    .map((s) => {
+      const price = assetQuotes.get(s.typeId)?.bid || 0;
+      return {
+        typeId: s.typeId,
+        locationId: s.locationId,
+        typeName: nameOf(s.typeId),
+        qty: s.qty,
+        price,
+        value: price * s.qty,
+      };
     })
     .filter((x) => x.value > 0)
-    .sort((a, b) => b.value - a.value);
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 30);
+
+  const locInfos = await mapLimit(inventoryRaw, 6, (r) =>
+    r.locationId ? withTimeout(locationInfo(r.locationId, ch.characterId), 4000) : null
+  );
+  const inventory = inventoryRaw.map((r, i) => ({
+    ...r,
+    locationName: locInfos[i]?.name || null,
+    systemName: locInfos[i]?.systemName || null,
+  }));
 
   const ordersValue = marked.reduce((s, o) => s + o.value, 0);
   const inventoryValue = inventory.reduce((s, x) => s + x.value, 0);
