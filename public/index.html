@@ -62,6 +62,10 @@
           <option value="structure">Структуры</option>
         </select>
         <label class="chk"><input type="checkbox" id="fOnlyGood" checked> только прибыльные</label>
+        <label class="chk"><input type="checkbox" id="fHideSk"> без SKIN/BP</label>
+        <select id="fPreset"><option value="">Пресеты…</option></select>
+        <button class="btn small" id="btnPresetSave">+ пресет</button>
+        <button class="btn small" id="btnCsv">CSV</button>
         <span class="count" id="fCount"></span>
       </div>
 
@@ -335,6 +339,20 @@
           <button class="btn" id="btnAddStruct">Добавить</button>
         </div>
         <div id="settingsStructList" class="structures"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Автоскан</h3>
+        <label class="check"><input type="checkbox" id="autoScanEnabled" /> Включить автоскан</label>
+        <div class="formrow">
+          <label>Интервал, мин <input id="autoScanMinutes" type="number" min="5" max="120" value="10" /></label>
+          <label>Мин. нетто-маржа, % <input id="autoScanMargin" type="number" min="1" max="100" value="8" /></label>
+          <button class="btn" id="autoScanSave">Сохранить</button>
+        </div>
+        <p class="muted small">
+          Скан запускается сам, пока страница открыта. О новых возможностях сообщает карточка в браузере и звук —
+          без уведомления в углу экрана.
+        </p>
       </div>
 
       <div class="panel">

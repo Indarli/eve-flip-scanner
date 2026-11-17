@@ -10,12 +10,16 @@ const state = {
   rows: [],
   meta: null,
   sort: { key: "iskDay", dir: "desc" },
-  filters: { search: "", margin: 2, volume: 10, maxPrice: 2e9, location: "", kind: "", onlyGood: true },
+  filters: { search: "", margin: 2, volume: 10, maxPrice: 2e9, location: "", kind: "", onlyGood: true, hideSk: false },
   poll: null,
   rowLimit: 400,
   sse: false,
   es: null,
   scanDoneKey: null,
+  scanRunning: false,
+  autoTimer: null,
+  autoSeen: new Set(),
+  autoSeeded: false,
   esiTimer: null,
   pi: null,
   piFilter: "all",
@@ -124,6 +128,7 @@ async function boot() {
     if (["scan", "portfolio", "intel", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
     if (!sseOk && state.cfg.scan?.running) pollScan();
     if (!sseOk) startEsiPoll();
+    scheduleAutoScan();
 
     const params = new URLSearchParams(location.search);
     if (params.get("auth") === "ok") {
@@ -216,18 +221,21 @@ function addCharacter() {
 // ------------------------------------------------------------------ scan
 async function startScan() {
   $("#btnScan").disabled = true;
+  state.scanRunning = true;
   try {
     await api("/api/scan", { method: "POST" });
     $("#progress").hidden = false;
     if (!state.sse) pollScan();
   } catch (err) {
     $("#btnScan").disabled = false;
+    state.scanRunning = false;
     toast(err.message, true);
   }
 }
 
 function handleScanUpdate(scan) {
   renderScan(scan);
+  state.scanRunning = Boolean(scan.running);
   if (scan.running || scan.phase === "idle") return;
 
   const key = `${scan.phase}:${scan.finishedAt || ""}`;
@@ -236,12 +244,60 @@ function handleScanUpdate(scan) {
 
   $("#btnScan").disabled = false;
   if (scan.phase === "done") {
-    loadResults();
+    loadResults().then(checkNewOpportunities);
     toast(`Скан завершён: ${scan.rows} позиций`);
   } else if (scan.phase === "error") {
     toast("Ошибка скана: " + scan.message, true);
   }
   setTimeout(() => ($("#progress").hidden = true), 2500);
+}
+
+function autoCfg() {
+  return {
+    enabled: localStorage.getItem("eveflip.auto.enabled") === "1",
+    minutes: Math.max(5, Number(localStorage.getItem("eveflip.auto.minutes")) || 10),
+    margin: Math.max(1, Number(localStorage.getItem("eveflip.auto.margin")) || 8),
+  };
+}
+
+function scheduleAutoScan() {
+  clearInterval(state.autoTimer);
+  state.autoTimer = null;
+  const cfg = autoCfg();
+  if (!cfg.enabled) return;
+  state.autoTimer = setInterval(() => {
+    if (!state.scanRunning) startScan();
+  }, cfg.minutes * 60_000);
+}
+
+function checkNewOpportunities() {
+  const cfg = autoCfg();
+  if (!cfg.enabled) return;
+  const rows = (state.rows || []).filter(
+    (r) => (Number(r.marginNet) || 0) * 100 >= cfg.margin && Number(r.profitUnit) > 0
+  );
+  const keys = new Set(rows.map((r) => `${r.typeId}:${r.locationId}`));
+  if (!state.autoSeeded) {
+    state.autoSeen = keys;
+    state.autoSeeded = true;
+    return;
+  }
+  const fresh = rows.filter((r) => !state.autoSeen.has(`${r.typeId}:${r.locationId}`));
+  state.autoSeen = keys;
+  if (!fresh.length) return;
+
+  playIntelSound(true);
+  showSimplePopup(
+    `Новые возможности: ${fresh.length}`,
+    fresh
+      .slice(0, 3)
+      .map(
+        (r) =>
+          `<b>${esc(r.typeName)}</b> — ${esc(r.locationName)} · ${pct(r.marginNet)} · ${isk(r.profitUnit)}/шт`
+      ),
+    "scan"
+  );
+  toast(`Новые возможности: ${fresh.length}`);
 }
 
 function updateEsiBanner(st) {
@@ -389,6 +445,7 @@ function visibleRows() {
     if (r.ask > f.maxPrice) return false;
     if (f.location && String(r.locationId) !== f.location) return false;
     if (f.kind && r.kind !== f.kind) return false;
+    if (f.hideSk && /skin|blueprint|чертеж/i.test(String(r.typeName || ""))) return false;
     if (q && !String(r.typeName || "").toLowerCase().includes(q) && !String(r.locationName).toLowerCase().includes(q)) return false;
     return true;
   });
@@ -403,8 +460,111 @@ function visibleRows() {
   return rows;
 }
 
-function marginBadge(m) {
-  const v = m * 100;
+function readPresets() {
+  try {
+    return JSON.parse(localStorage.getItem("eveflip.presets") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function renderPresets() {
+  const sel = $("#fPreset");
+  if (!sel) return;
+  const presets = readPresets();
+  sel.innerHTML =
+    `<option value="">Пресеты…</option>` +
+    Object.keys(presets)
+      .map((n) => `<option value="${esc(n)}">${esc(n)}</option>`)
+      .join("");
+}
+
+function savePreset() {
+  const name = prompt("Название пресета");
+  if (!name) return;
+  const presets = readPresets();
+  presets[name] = { filters: { ...state.filters }, sort: { ...state.sort } };
+  localStorage.setItem("eveflip.presets", JSON.stringify(presets));
+  renderPresets();
+  toast(`Пресет «${name}» сохранён`);
+}
+
+function applyPreset(name) {
+  const p = readPresets()[name];
+  if (!p) return;
+  state.filters = { ...state.filters, ...p.filters };
+  if (p.sort) state.sort = { ...state.sort, ...p.sort };
+  $("#fSearch").value = state.filters.search;
+  $("#fMargin").value = state.filters.margin;
+  $("#fVolume").value = state.filters.volume;
+  $("#fMaxPrice").value = state.filters.maxPrice;
+  $("#fLocation").value = state.filters.location;
+  $("#fKind").value = state.filters.kind;
+  $("#fOnlyGood").checked = Boolean(state.filters.onlyGood);
+  $("#fHideSk").checked = Boolean(state.filters.hideSk);
+  renderTable();
+  toast(`Пресет «${name}» применён`);
+}
+
+function exportCsv() {
+  const rows = visibleRows();
+  const cols = [
+    "typeId",
+    "typeName",
+    "locationName",
+    "kind",
+    "bid",
+    "ask",
+    "spreadPct",
+    "marginNet",
+    "profitUnit",
+    "volumeDay",
+    "iskDay",
+    "roiDay",
+    "daysToSell",
+    "competition",
+    "capital",
+  ];
+  const head = cols.join(";");
+  const body = rows.map((r) =>
+    cols
+      .map((c) => {
+        const v = r[c];
+        if (typeof v === "number") return String(Number(v.toFixed(6))).replace(".", ",");
+        return `"${String(v ?? "").replace(/"/g, '""')}"`;
+      })
+      .join(";")
+  );
+  const blob = new Blob(["\uFEFF" + [head, ...body].join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `eve-flip-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`Экспортировано строк: ${rows.length}`);
+}
+
+async function loadCompare(typeId) {
+  const box = $("#cmpBox");
+  if (!box) return;
+  try {
+    const d = await api(`/api/compare?type=${encodeURIComponent(typeId)}`);
+    box.innerHTML = `<table class="intel-table"><thead><tr>
+      <th>Хаб</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">Спред</th>
+    </tr></thead><tbody>${(d.rows || [])
+      .map((r) => {
+        const spread = r.bid > 0 && r.ask > 0 ? (r.ask - r.bid) / r.ask : null;
+        return `<tr><td>${esc(r.hub)}</td><td class="num">${r.bid ? isk(r.bid) : "—"}</td>
+          <td class="num">${r.ask ? isk(r.ask) : "—"}</td>
+          <td class="num">${spread === null ? "—" : pct(spread)}</td></tr>`;
+      })
+      .join("")}</tbody></table>`;
+  } catch (e) {
+    box.textContent = e.message;
+  }
+}
+
+function marginBadge(m) {  const v = m * 100;
   const cls = v >= 8 ? "good" : v >= 3 ? "warn" : "bad";
   return `<span class="badge ${cls}">${v.toFixed(1)}%</span>`;
 }
@@ -507,6 +667,11 @@ async function openItem(key) {
       <div class="k">Отклонение ask от VWAP</div><div class="v">${pct(row.discountPct)}</div>
     </div>
 
+    <div class="panel" style="margin: 12px 0">
+      <h3>Сравнение хабов</h3>
+      <div id="cmpBox" class="muted small">Загружаю цены по хабам…</div>
+    </div>
+
     <div class="ladder">
       <div class="buy"><h4>Buy-ордера</h4>
         <table>${ladder(d.book.buy, "buy")}</table></div>
@@ -528,6 +693,7 @@ async function openItem(key) {
   `;
 
   drawChart($("#chart"), d.history);
+  loadCompare(row.typeId);
 }
 
 function closeDrawer() {
@@ -1777,6 +1943,12 @@ async function loadBackups() {
 
 function renderSettings() {
   if (!state.cfg) return;
+  const ac = autoCfg();
+  if ($("#autoScanEnabled")) {
+    $("#autoScanEnabled").checked = ac.enabled;
+    $("#autoScanMinutes").value = ac.minutes;
+    $("#autoScanMargin").value = ac.margin;
+  }
   const list = state.cfg.structures || [];
   $("#settingsStructList").innerHTML = list.length
     ? list
@@ -1800,6 +1972,16 @@ function renderDiag(stats) {
 
 // ------------------------------------------------------------------ events
 function bindUI() {
+  $("#autoScanSave").onclick = () => {
+    localStorage.setItem("eveflip.auto.enabled", $("#autoScanEnabled").checked ? "1" : "0");
+    localStorage.setItem("eveflip.auto.minutes", String(Math.max(5, Number($("#autoScanMinutes").value) || 10)));
+    localStorage.setItem("eveflip.auto.margin", String(Math.max(1, Number($("#autoScanMargin").value) || 8)));
+    state.autoSeeded = false;
+    state.autoSeen = new Set();
+    scheduleAutoScan();
+    toast("Автоскан сохранён");
+  };
+
   $("#pfRefresh").onclick = () => loadPortfolio(true);
 
   $("#btnScan").onclick = startScan;
@@ -1825,6 +2007,11 @@ function bindUI() {
   $("#fMaxPrice").oninput = (e) => { state.filters.maxPrice = Number(e.target.value) || Infinity; renderTable(); };
   $("#fLocation").onchange = (e) => { state.filters.location = e.target.value; renderTable(); };
   $("#fKind").onchange = (e) => { state.filters.kind = e.target.value; renderTable(); };
+  $("#fHideSk").onchange = (e) => { state.filters.hideSk = e.target.checked; renderTable(); };
+  $("#btnCsv").onclick = exportCsv;
+  $("#btnPresetSave").onclick = savePreset;
+  $("#fPreset").onchange = (e) => { if (e.target.value) applyPreset(e.target.value); };
+  renderPresets();
   $("#fOnlyGood").onchange = (e) => { state.filters.onlyGood = e.target.checked; renderTable(); };
 
   $("#tbl thead").onclick = (e) => {

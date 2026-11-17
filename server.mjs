@@ -84,6 +84,7 @@ const intel = new IntelService({ esi, auth, getConfig: () => config, dataDir: DA
 intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
 
 let portfolioCache = { ts: 0, data: null };
+const compareCache = new Map();
 
 async function buildPortfolio() {
   const ch = primaryCharacter();
@@ -841,6 +842,29 @@ const server = http.createServer(async (req, res) => {
       portfolioCache = { ts: 0, data: null };
       const data = await buildPortfolio();
       sendJson(req, res, data ? 200 : 401, data || { error: "Нет авторизованного персонажа" });
+      return;
+    }
+
+    if (pathname === "/api/compare" && req.method === "GET") {
+      const typeId = Number(url.searchParams.get("type"));
+      if (!typeId) {
+        sendJson(req, res, 400, { error: "Нужен параметр type" });
+        return;
+      }
+      const hit = compareCache.get(typeId);
+      if (hit && Date.now() - hit.ts < 60_000) {
+        sendJson(req, res, 200, hit.data);
+        return;
+      }
+      const rows = [];
+      for (const h of HUBS) {
+        const q = await fetchQuotes({ stationId: h.stationId, regionId: h.regionId, typeIds: [typeId] });
+        const v = q.get(typeId);
+        rows.push({ hub: h.name, bid: v?.bid || 0, ask: v?.ask || 0 });
+      }
+      const data = { typeId, rows };
+      compareCache.set(typeId, { ts: Date.now(), data });
+      sendJson(req, res, 200, data);
       return;
     }
 
