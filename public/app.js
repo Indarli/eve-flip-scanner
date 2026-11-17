@@ -16,6 +16,7 @@ const state = {
   sse: false,
   es: null,
   scanDoneKey: null,
+  esiTimer: null,
   pi: null,
   piFilter: "all",
   piTimer: null,
@@ -111,6 +112,7 @@ async function boot() {
     const initialTab = location.hash.replace("#", "");
     if (["scan", "intel", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
     if (!sseOk && state.cfg.scan?.running) pollScan();
+    if (!sseOk) startEsiPoll();
 
     const params = new URLSearchParams(location.search);
     if (params.get("auth") === "ok") {
@@ -154,6 +156,7 @@ function applyConfig(cfg) {
   $("#defMargin").value = (Number(state.cfg.filters.minMargin || 0.02) * 100).toFixed(1);
   $("#defVolume").value = state.cfg.filters.minVolume ?? 20;
   $("#clientStatus").textContent = state.cfg.clientId ? "Client ID сохранён" : "Client ID не задан";
+  if (cfg.esiStatus) updateEsiBanner(cfg.esiStatus);
   if (cfg.esiStats) renderDiag(cfg.esiStats);
 }
 
@@ -230,6 +233,31 @@ function handleScanUpdate(scan) {
   setTimeout(() => ($("#progress").hidden = true), 2500);
 }
 
+function updateEsiBanner(st) {
+  const el = $("#esiBanner");
+  if (!el) return;
+  if (!st || !st.down) {
+    el.hidden = true;
+    return;
+  }
+  const ago = st.lastOkAt ? Math.round((Date.now() - st.lastOkAt) / 1000) : null;
+  const tail =
+    ago === null ? "успешных ответов ещё не было" : `последний успешный ответ ${fmtAge(ago)} назад`;
+  $("#esiBannerText").textContent = `ESI недоступен${st.lastError ? `: ${st.lastError}` : ""} · ${tail} · повторяю автоматически…`;
+  el.hidden = false;
+}
+
+function startEsiPoll() {
+  clearInterval(state.esiTimer);
+  state.esiTimer = setInterval(async () => {
+    try {
+      updateEsiBanner(await api("/api/esi/status"));
+    } catch {
+      /* ignore */
+    }
+  }, 5000);
+}
+
 function pollScan() {
   clearInterval(state.poll);
   $("#progress").hidden = false;
@@ -271,10 +299,19 @@ function startSSE() {
       }
     });
 
+    es.addEventListener("esi", (e) => {
+      try {
+        updateEsiBanner(JSON.parse(e.data));
+      } catch {
+        /* ignore */
+      }
+    });
+
     es.onerror = () => {
       es.close();
       state.es = null;
       state.sse = false;
+      startEsiPoll();
       if ($("#tab-intel")?.classList.contains("active")) startIntelPoll();
       if (!$("#progress").hidden) pollScan();
     };
@@ -1497,6 +1534,15 @@ function renderDiag(stats) {
 // ------------------------------------------------------------------ events
 function bindUI() {
   $("#btnScan").onclick = startScan;
+  $("#esiRetry").onclick = async () => {
+    try {
+      const st = await api("/api/esi/retry", { method: "POST", body: "{}" });
+      updateEsiBanner(st);
+      toast(st.down ? "ESI всё ещё недоступен" : "ESI снова доступен", st.down);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
   $("#capture").oninput = (e) => ($("#captureVal").textContent = Number(e.target.value).toFixed(2));
   $("#capture").onchange = async (e) => {
     state.cfg.capture = Number(e.target.value);

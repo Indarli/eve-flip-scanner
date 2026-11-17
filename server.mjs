@@ -99,10 +99,18 @@ setInterval(async () => {
   if (scanState.running) broadcastScan();
   try {
     broadcast("intel", await intel.snapshot());
+    broadcast("esi", esi.status());
   } catch {
     /* ignore */
   }
 }, 2000);
+
+// автоматическая проверка доступности ESI, когда он «упал»
+setInterval(() => {
+  if (esi.stats.consecutiveErrors >= 3) {
+    esi.probe().catch(() => {});
+  }
+}, 15_000);
 
 setInterval(() => {
   for (const client of sseClients) {
@@ -704,6 +712,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/esi/status" && req.method === "GET") {
+      sendJson(req, res, 200, esi.status());
+      return;
+    }
+
+    if (pathname === "/api/esi/retry" && req.method === "POST") {
+      esi.penaltyUntil = 0;
+      await esi.probe();
+      broadcast("esi", esi.status());
+      sendJson(req, res, 200, esi.status());
+      return;
+    }
+
     if (pathname === "/api/events" && req.method === "GET") {
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -749,6 +770,7 @@ const server = http.createServer(async (req, res) => {
         resultsMeta: currentResults?.meta || null,
         fees: primaryCharacter()?.fees || { source: "default", tax: defaultFees().tax, broker: defaultFees().broker, hubs: {} },
         esiStats: esi.stats,
+        esiStatus: esi.status(),
       });
       return;
     }
