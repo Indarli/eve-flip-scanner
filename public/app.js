@@ -32,6 +32,7 @@ const state = {
   zkbLoaded: false,
   portfolio: null,
   pfTimer: null,
+  pfRetryTimer: null,
   pfSeen: new Set(),
   pfLoaded: false,
   pfChar: localStorage.getItem("eveflip.pf.char") || "",
@@ -1307,6 +1308,23 @@ async function loadPortfolio(force = false) {
           body: JSON.stringify({ characterId: state.pfChar || undefined }),
         })
       : await api("/api/portfolio" + q);
+
+    if (d.pending) {
+      state.portfolio = null;
+      clearTimeout(state.pfRetryTimer);
+      state.pfRetryTimer = setTimeout(() => loadPortfolio(), 5000);
+      $("#pfWho").textContent = "Профиль загружается…";
+      $("#pfCards").innerHTML = card(
+        "Портфель",
+        "…",
+        "Загружаю профиль персонажа (ордера, транзакции, склад). Обычно это занимает до минуты — страница обновится сама."
+      );
+      $("#pfOrders").innerHTML = `<div class="intel-empty">Жду профиль…</div>`;
+      $("#pfPnl").innerHTML = `<div class="intel-empty">Жду профиль…</div>`;
+      $("#pfInv").innerHTML = `<div class="intel-empty">Жду профиль…</div>`;
+      return;
+    }
+    clearTimeout(state.pfRetryTimer);
     state.portfolio = d;
     renderPortfolio();
   } catch (e) {

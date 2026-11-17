@@ -149,7 +149,16 @@ async function locationInfo(locationId, characterId) {
 }
 
 async function buildPortfolio(characterId) {
-  const ch = (characterId && characters[characterId]) || primaryCharacter();
+  const idNum = Number(characterId) || null;
+  if (idNum && !characters[idNum]) {
+    if (auth.has(idNum)) {
+      refreshCharacter(idNum).catch(() => {});
+      return { pending: true, characterId: idNum, error: "Профиль ещё загружается" };
+    }
+    return { error: "Персонаж не авторизован", characterId: idNum };
+  }
+
+  const ch = (idNum && characters[idNum]) || primaryCharacter();
   if (!ch) return null;
   const cached = portfolioCaches.get(ch.characterId);
   if (cached && Date.now() - cached.ts < 60_000) return cached.data;
@@ -927,7 +936,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(req, res, 401, { error: "Нет авторизованного персонажа" });
         return;
       }
-      sendJson(req, res, 200, data);
+      const code = data.pending ? 202 : data.error ? 404 : 200;
+      sendJson(req, res, code, data);
       return;
     }
 
@@ -937,7 +947,8 @@ const server = http.createServer(async (req, res) => {
       if (char) portfolioCaches.delete(char);
       else portfolioCaches.clear();
       const data = await buildPortfolio(char);
-      sendJson(req, res, data ? 200 : 401, data || { error: "Нет авторизованного персонажа" });
+      const code = !data ? 401 : data.pending ? 202 : data.error ? 404 : 200;
+      sendJson(req, res, code, data || { error: "Нет авторизованного персонажа" });
       return;
     }
 
