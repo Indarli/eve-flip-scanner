@@ -11,7 +11,8 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "scan": "node cli-scan.mjs"
+    "scan": "node cli-scan.mjs",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"

@@ -33,8 +33,10 @@ import { runScan } from "./lib/scan.mjs";
 import { analyzeColony, summarizePi } from "./lib/pi.mjs";
 import { IntelService } from "./lib/intel.mjs";
 import { markOrders, fetchQuotes, fetchTypeNames } from "./lib/portfolio.mjs";
+import { attachFileLog } from "./lib/log.mjs";
 
 initDirs();
+attachFileLog(path.join(DATA_DIR, "logs"));
 
 setTimeout(() => {
   try {
@@ -476,7 +478,18 @@ const refreshing = new Map();
 async function refreshCharacter(characterId) {
   if (refreshing.has(characterId)) return refreshing.get(characterId);
   const promise = (async () => {
-    const profile = await fetchCharacter({ esi, auth, config, characterId });
+    let timer = null;
+    const profile = await Promise.race([
+      fetchCharacter({ esi, auth, config, characterId }),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`таймаут загрузки профиля ${characterId} (120 с)`)),
+          120_000
+        );
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
     characters[profile.characterId] = profile;
     saveCharacters(characters);
     piOverview = null;
