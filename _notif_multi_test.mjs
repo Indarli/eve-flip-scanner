@@ -1,0 +1,10 @@
+﻿const base = "http://127.0.0.1:8787";
+await fetch(base + "/api/intel/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channels: ["Pilot BetaAlts"], recentMinutes: 1440 }) });
+await new Promise(r => setTimeout(r, 12000));
+const j = await (await fetch(base + "/api/notifier/alerts")).json();
+const withExtra = j.items.filter(i => i.extra > 0);
+console.log("items:", j.items.length, "with +N:", withExtra.length);
+if (withExtra.length) console.log(JSON.stringify(withExtra[0], null, 1));
+const multi = j.items.filter(i => i.names && i.names.length > 1);
+console.log("multi-name items:", multi.length, multi[0] ? multi[0].names.join(", ") : "");
+await fetch(base + "/api/intel/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channels: ["southeast.imperium", "Gank-Intel"], recentMinutes: 30 }) });

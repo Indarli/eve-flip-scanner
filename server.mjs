@@ -938,6 +938,12 @@ const server = http.createServer(async (req, res) => {
           text: `${names}${a.extra ? ` +${a.extra}` : ""} — ${a.systemName || "?"}${
             a.regionName ? ` (${a.regionName})` : ""
           }${a.ship ? ` · ${a.ship}` : ""}`,
+          names: (a.names || []).map((n) => n.name),
+          extra: a.extra || 0,
+          system: a.systemName || null,
+          region: a.regionName || null,
+          jumps: a.jumps,
+          ship: a.ship || null,
         });
       }
 
@@ -950,6 +956,13 @@ const server = http.createServer(async (req, res) => {
           text: `${z.name}${z.ship ? ` (${z.ship})` : ""} — ${z.systemName || "?"}${
             z.regionName ? ` (${z.regionName})` : ""
           } · ${z.jumps} пр.`,
+          names: [z.name],
+          extra: 0,
+          system: z.systemName || null,
+          region: z.regionName || null,
+          jumps: z.jumps,
+          ship: z.ship || null,
+          isLoss: Boolean(z.isLoss),
         });
       }
 
