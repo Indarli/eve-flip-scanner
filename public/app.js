@@ -1267,7 +1267,7 @@ function intelRow(p) {
       : p.trend === "away"
       ? `<span class="trend away">← от вас</span>`
       : "";
-  return `<tr>
+  return `<tr data-ikey="${esc(p.key || "")}">
     <td><div class="intel-names">${names}</div>${extra}</td>
     <td class="ship">${ship}</td>
     <td>${sys}${trend}</td>
@@ -1411,6 +1411,68 @@ function checkZkbAlerts(rows) {
   playIntelSound();
   showZkbPopup(fresh);
   notifyZkb(fresh);
+}
+
+function openIntelRow(key) {
+  const d = state.intel;
+  if (!d) return;
+  const row = [...(d.alerts || []), ...(d.pilots || [])].find((r) => r.key === key);
+  if (!row) return;
+
+  const names = (row.names || []).map((n) => n.name).join(", ");
+  const sys = row.systemName || "—";
+  const region = row.regionName ? ` (${row.regionName})` : "";
+  const trend =
+    row.trend === "toward" ? " · движется к вам" : row.trend === "away" ? " · уходит от вас" : "";
+  const dotlan = `https://evemaps.dotlan.net/system/${encodeURIComponent(row.systemName || "")}`;
+
+  $("#drawer").hidden = false;
+  $("#backdrop").hidden = false;
+  $("#drawerBody").innerHTML = `
+    <h2>${esc(names || "?")}</h2>
+    <div class="sub">${esc(sys)}${esc(region)} · ${row.jumps ?? "?"} пр.${trend}</div>
+
+    <div class="kv">
+      <div class="k">Корабль</div><div class="v">${esc(row.ship || "—")}</div>
+      <div class="k">Канал</div><div class="v">${esc(row.channel || "—")}</div>
+      <div class="k">Когда</div><div class="v">${fmtAge(row.ageSec)} назад</div>
+      <div class="k">Дополнительно</div><div class="v">${row.extra ? `+${row.extra}` : "—"}</div>
+      <div class="k">Мой персонаж</div><div class="v">${esc(row.nearest || "—")}</div>
+    </div>
+
+    <div class="formrow">
+      <a class="btn" href="${dotlan}" target="_blank" rel="noreferrer">Система на dotlan</a>
+      ${
+        row.zkill
+          ? `<a class="btn" href="${row.zkill}" target="_blank" rel="noreferrer">Последний килл</a>`
+          : ""
+      }
+      <button class="btn" id="intelCopyNames">Копировать ники</button>
+    </div>
+
+    <div class="structures">
+      ${(row.names || [])
+        .map(
+          (n) => `<div class="struct-row">
+            <span class="name">${esc(n.name)}</span>
+            <a class="meta" href="${n.zkb}" target="_blank" rel="noreferrer">zkillboard</a>
+          </div>`
+        )
+        .join("")}
+    </div>
+  `;
+
+  const copyBtn = $("#intelCopyNames");
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(names);
+        toast("Ники скопированы");
+      } catch {
+        toast("Не удалось скопировать", true);
+      }
+    };
+  }
 }
 
 function renderIntel() {
@@ -1722,14 +1784,20 @@ function bindUI() {
   });
   $("#tab-intel").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-isort]");
-    if (!th) return;
-    const key = th.dataset.isort;
-    if (state.intelSort.key === key) {
-      state.intelSort.dir = state.intelSort.dir === "asc" ? "desc" : "asc";
-    } else {
-      state.intelSort = { key, dir: "asc" };
+    if (th) {
+      const key = th.dataset.isort;
+      if (state.intelSort.key === key) {
+        state.intelSort.dir = state.intelSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        state.intelSort = { key, dir: "asc" };
+      }
+      renderIntel();
+      return;
     }
-    renderIntel();
+
+    if (e.target.closest("a")) return;
+    const tr = e.target.closest("tr[data-ikey]");
+    if (tr && tr.dataset.ikey) openIntelRow(tr.dataset.ikey);
   });
 
   // --- персонажи ---

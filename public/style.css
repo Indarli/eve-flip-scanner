@@ -368,6 +368,7 @@ code {
 .intel-table td { padding: 6px 8px; border-bottom: 1px solid rgba(120,165,225,.06); }
 .intel-table td.num { text-align: right; font-family: var(--mono); }
 .intel-table tr:hover { background: rgba(72,201,240,.04); }
+.intel-table tr { cursor: pointer; }
 .intel-table a { color: var(--text); }
 .intel-table a:hover { color: var(--accent); }
 .intel-table .ship { color: var(--muted); }
