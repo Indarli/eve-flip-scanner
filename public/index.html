@@ -307,6 +307,19 @@
       </div>
 
       <div class="panel">
+        <h3>Резервные копии</h3>
+        <p class="muted small">
+          config.json, tokens.json и characters.json — при изменении, раз в сутки и по кнопке.
+          Хранятся последние 10 копий в <code>data/backups</code>. Файл tokens.json содержит доступы к персонажам — не передавайте его.
+        </p>
+        <div class="formrow">
+          <button class="btn" id="btnBackupNow">Создать копию</button>
+          <span class="muted small" id="backupStatus"></span>
+        </div>
+        <div id="backupList" class="structures"></div>
+      </div>
+
+      <div class="panel">
         <h3>Параметры расчёта</h3>
         <div class="formrow">
           <label>Ставка владельца по умолчанию, %</label>

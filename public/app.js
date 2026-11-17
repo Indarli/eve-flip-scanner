@@ -1509,6 +1509,31 @@ async function saveIntelChannels() {
 }
 
 // ------------------------------------------------------------------ settings
+async function loadBackups() {
+  try {
+    const r = await api("/api/backup/list");
+    const list = r.backups || [];
+    const status = $("#backupStatus");
+    if (status) status.textContent = list.length ? `файлов: ${list.length}` : "копий пока нет";
+    const box = $("#backupList");
+    if (box) {
+      box.innerHTML = list
+        .slice(0, 12)
+        .map(
+          (b) =>
+            `<div class="struct-row">
+              <span class="name">${esc(b.name)}</span>
+              <span class="meta">${(b.size / 1024).toFixed(1)} КБ</span>
+              <span class="meta">${new Date(b.mtime).toLocaleString("ru-RU")}</span>
+            </div>`
+        )
+        .join("");
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function renderSettings() {
   if (!state.cfg) return;
   const list = state.cfg.structures || [];
@@ -1524,6 +1549,7 @@ function renderSettings() {
         )
         .join("")
     : `<div class="muted small">Список пуст. Структуры можно добавить вручную или они подтянутся из персонажа.</div>`;
+  loadBackups();
 }
 
 function renderDiag(stats) {
@@ -1825,6 +1851,16 @@ function bindUI() {
       toast(err.message, true);
     } finally {
       $("#btnRefreshChar").disabled = false;
+    }
+  };
+
+  $("#btnBackupNow").onclick = async () => {
+    try {
+      const r = await api("/api/backup/now", { method: "POST", body: "{}" });
+      toast(`Создано файлов: ${r.files.length}`);
+      loadBackups();
+    } catch (e) {
+      toast(e.message, true);
     }
   };
 

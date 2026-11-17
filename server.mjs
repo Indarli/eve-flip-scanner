@@ -21,6 +21,8 @@ import {
   savePiCache,
   loadNames,
   saveNames,
+  createBackup,
+  listBackups,
 } from "./lib/store.mjs";
 import { EsiClient } from "./lib/esi.mjs";
 import { Auth } from "./lib/auth.mjs";
@@ -30,6 +32,21 @@ import { analyzeColony, summarizePi } from "./lib/pi.mjs";
 import { IntelService } from "./lib/intel.mjs";
 
 initDirs();
+
+setTimeout(() => {
+  try {
+    createBackup("startup");
+  } catch {
+    /* ignore */
+  }
+}, 5000);
+setInterval(() => {
+  try {
+    createBackup("daily");
+  } catch {
+    /* ignore */
+  }
+}, 24 * 3600_000);
 
 let config = loadConfig();
 const auth = new Auth({ getConfig: () => config });
@@ -714,6 +731,23 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/esi/status" && req.method === "GET") {
       sendJson(req, res, 200, esi.status());
+      return;
+    }
+
+    if (pathname === "/api/backup/list" && req.method === "GET") {
+      sendJson(req, res, 200, { backups: listBackups().slice(0, 30) });
+      return;
+    }
+
+    if (pathname === "/api/backup/now" && req.method === "POST") {
+      let files = [];
+      try {
+        files = createBackup("manual");
+      } catch (e) {
+        sendJson(req, res, 500, { error: e.message });
+        return;
+      }
+      sendJson(req, res, 200, { ok: true, files, backups: listBackups().slice(0, 30) });
       return;
     }
 
