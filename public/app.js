@@ -1609,7 +1609,9 @@ function intelRow(p) {
     <td class="ship">${ship}</td>
     <td>${sys}${trend}</td>
     <td class="age">${p.regionName ? esc(p.regionName) : "—"}</td>
-    <td class="num"><span class="jumps ${cls}">${j === null || j === undefined ? "?" : j}</span></td>
+    <td class="num"><span class="jumps ${cls}" title="${j === null || j === undefined ? "считаю маршрут…" : ""}">${
+      j === null || j === undefined ? "…" : j
+    }</span></td>
     <td class="age">${p.nearest ? esc(p.nearest) : "—"}</td>
     <td class="age">${fmtAge(p.ageSec)}</td>
   </tr>`;
@@ -1767,7 +1769,7 @@ function openIntelRow(key) {
   $("#backdrop").hidden = false;
   $("#drawerBody").innerHTML = `
     <h2>${esc(names || "?")}</h2>
-    <div class="sub">${esc(sys)}${esc(region)} · ${row.jumps ?? "?"} пр.${trend}</div>
+    <div class="sub">${esc(sys)}${esc(region)} · ${row.jumps === null || row.jumps === undefined ? "…" : row.jumps} пр.${trend}</div>
 
     <div class="kv">
       <div class="k">Корабль</div><div class="v">${esc(row.ship || "—")}</div>
