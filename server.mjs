@@ -923,6 +923,57 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/notifier/alerts" && req.method === "GET") {
+      const state = await intel.snapshot();
+      const nowMs = Date.now();
+      const items = [];
+
+      for (const a of state.alerts || []) {
+        const names = (a.names || []).map((n) => n.name).join(", ");
+        items.push({
+          id: `intel:${a.key}`,
+          type: "intel",
+          ts: a.ts,
+          title: `Интель · ${a.jumps} пр.`,
+          text: `${names}${a.extra ? ` +${a.extra}` : ""} — ${a.systemName || "?"}${
+            a.regionName ? ` (${a.regionName})` : ""
+          }`,
+        });
+      }
+
+      for (const z of state.zkb || []) {
+        items.push({
+          id: `zkb:${z.key}`,
+          type: "zkb",
+          ts: Date.parse(z.time) || nowMs,
+          title: `ZKB · ${z.isLoss ? "убит" : "убил"}`,
+          text: `${z.name}${z.ship ? ` (${z.ship})` : ""} — ${z.systemName || "?"}${
+            z.regionName ? ` (${z.regionName})` : ""
+          } · ${z.jumps} пр.`,
+        });
+      }
+
+      try {
+        const pi = await buildPiOverview(false);
+        for (const q of pi.queue || []) {
+          if (q.status !== "expired" && q.status !== "critical") continue;
+          items.push({
+            id: `pi:${q.characterId}:${q.planetId}:${q.pinId}:${q.expiresAt}`,
+            type: "pi",
+            ts: q.expiresAt,
+            title: `Планетарка · ${q.status === "expired" ? "остановлен" : "скоро остановится"}`,
+            text: `${q.planetName}: ${q.productName} · ${q.characterName}`,
+          });
+        }
+      } catch {
+        /* планетарка не критична */
+      }
+
+      items.sort((a, b) => b.ts - a.ts);
+      sendJson(req, res, 200, { now: nowMs, items: items.slice(0, 60) });
+      return;
+    }
+
     if (pathname === "/api/structures" && req.method === "POST") {
       const body = await readBody(req);
       const id = Number(body.id);

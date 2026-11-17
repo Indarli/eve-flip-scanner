@@ -15,6 +15,7 @@ if errorlevel 1 (
 set OPEN_BROWSER=1
 if /i "%~1"=="--no-browser" set OPEN_BROWSER=0
 
+start "" wscript "%~dp0notifier.vbs"
 node server.mjs
 
 echo.
