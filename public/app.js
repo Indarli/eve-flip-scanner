@@ -20,6 +20,8 @@ const state = {
   intelTimer: null,
   intelSeen: new Set(),
   intelLoaded: false,
+  zkbSeen: new Set(),
+  zkbLoaded: false,
   intelSort: { key: "ageSec", dir: "asc" }, // «Когда»: сверху самое новое
 };
 
@@ -1224,6 +1226,96 @@ function intelTable(list) {
     .join("")}</tbody></table>`;
 }
 
+function zkbRowHtml(z) {
+  const cls = z.jumps === 0 ? "j0" : z.jumps === 1 ? "j1" : z.jumps === 2 ? "j2" : "j3";
+  const name = `<a href="${z.zkb}" target="_blank" rel="noreferrer">${esc(z.name)}</a>`;
+  const sys = z.systemName
+    ? `<a href="https://evemaps.dotlan.net/system/${encodeURIComponent(z.systemName)}" target="_blank" rel="noreferrer">${esc(
+        z.systemName
+      )}</a>`
+    : `<span class="muted">—</span>`;
+  return `<tr>
+    <td>${name} <span class="badge ${z.isLoss ? "bad" : "good"}">${z.isLoss ? "убит" : "убил"}</span></td>
+    <td class="ship">${z.ship ? esc(z.ship) : `<span class="muted">—</span>`}</td>
+    <td>${sys}</td>
+    <td class="age">${z.regionName ? esc(z.regionName) : "—"}</td>
+    <td class="num"><span class="jumps ${cls}">${z.jumps}</span></td>
+    <td class="age">${fmtAge(z.ageSec)}</td>
+    <td><a href="${z.key}" target="_blank" rel="noreferrer">zkb</a></td>
+  </tr>`;
+}
+
+function zkbTable(list) {
+  return `<table class="intel-table"><thead><tr>
+      <th>Пилот</th><th>Корабль</th><th>Система</th><th>Регион</th><th class="num">Прыжков</th><th>Когда</th><th></th>
+    </tr></thead><tbody>${list.slice(0, 100).map(zkbRowHtml).join("")}</tbody></table>`;
+}
+
+function zkbAlertLine(z) {
+  return `<div class="ip-item"><b>${esc(z.name)}</b> <span class="badge ${z.isLoss ? "bad" : "good"}">${
+    z.isLoss ? "убит" : "убил"
+  }</span> — <span class="ip-sys">${esc(z.systemName || "?")}</span>${
+    z.regionName ? ` (${esc(z.regionName)})` : ""
+  } · <span class="ip-jumps">${z.jumps} пр.</span>${z.ship ? ` · ${esc(z.ship)}` : ""}</div>`;
+}
+
+function showZkbPopup(rows) {
+  const el = $("#intelPopup");
+  if (!el || !rows.length) return;
+  el.innerHTML = `
+    <div class="ip-head">
+      <span class="ip-title">ZKB · ${rows.length} новых</span>
+      <button class="ip-close" id="ipClose" title="закрыть">×</button>
+    </div>
+    ${rows.slice(0, 3).map(zkbAlertLine).join("")}
+    <div class="ip-foot">нажмите, чтобы открыть вкладку «Интель»</div>`;
+  el.hidden = false;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => (el.hidden = true), 10000);
+  el.onclick = (e) => {
+    if (e.target.closest("#ipClose")) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = true;
+    setTab("intel");
+  };
+}
+
+function notifyZkb(rows) {
+  if (localStorage.getItem("eveflip.intel.notify") !== "1") return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const z = rows[0];
+  const body = `${z.name} ${z.isLoss ? "убит" : "убил"} — ${z.ship || "корабль"} · ${z.systemName || "?"}${
+    z.regionName ? ` (${z.regionName})` : ""
+  }, ${z.jumps} пр.`;
+  try {
+    const n = new Notification(`ZKB: ${z.isLoss ? "потеря" : "килл"}`, { body, tag: "eve-zkb", renotify: true });
+    n.onclick = () => {
+      window.focus();
+      setTab("intel");
+      n.close();
+    };
+  } catch {
+    /* ignore */
+  }
+}
+
+function checkZkbAlerts(rows) {
+  if (!state.zkbLoaded) {
+    for (const z of rows) state.zkbSeen.add(z.key);
+    state.zkbLoaded = true;
+    return;
+  }
+  const fresh = rows.filter((z) => z.key && !state.zkbSeen.has(z.key));
+  for (const z of fresh) state.zkbSeen.add(z.key);
+  if (state.zkbSeen.size > 500) state.zkbSeen = new Set([...state.zkbSeen].slice(-300));
+  if (!fresh.length) return;
+  playIntelSound();
+  showZkbPopup(fresh);
+  notifyZkb(fresh);
+}
+
 function renderIntel() {
   const d = state.intel;
   if (!d) return;
@@ -1283,7 +1375,14 @@ function renderIntel() {
   $("#intelPilotCount").textContent = `${pilots.length} событий`;
   $("#intelPilots").innerHTML = pilots.length ? intelTable(pilots) : `<div class="intel-empty">Нет упоминаний.</div>`;
 
+  const zkb = d.zkb || [];
+  $("#intelZkbCount").textContent = `${zkb.length}`;
+  $("#intelZkb").innerHTML = zkb.length
+    ? zkbTable(zkb)
+    : `<div class="intel-empty">Подтверждённых записей zKill в радиусе нет.</div>`;
+
   checkIntelAlerts(alerts);
+  checkZkbAlerts(zkb);
 }
 
 async function loadIntel() {
