@@ -13,6 +13,9 @@ const state = {
   filters: { search: "", margin: 2, volume: 10, maxPrice: 2e9, location: "", kind: "", onlyGood: true },
   poll: null,
   rowLimit: 400,
+  sse: false,
+  es: null,
+  scanDoneKey: null,
   pi: null,
   piFilter: "all",
   piTimer: null,
@@ -82,7 +85,7 @@ function setTab(name, updateHash = true) {
   if (name === "pi") loadPi();
   if (name === "intel") {
     loadIntel();
-    startIntelPoll();
+    if (!state.sse) startIntelPoll();
   } else {
     clearInterval(state.intelTimer);
     state.intelTimer = null;
@@ -104,9 +107,10 @@ async function boot() {
     renderSettings();
     renderFilters();
     bindUI();
+    const sseOk = startSSE();
     const initialTab = location.hash.replace("#", "");
     if (["scan", "intel", "pi", "character", "settings"].includes(initialTab)) setTab(initialTab, false);
-    if (state.cfg.scan?.running) pollScan();
+    if (!sseOk && state.cfg.scan?.running) pollScan();
 
     const params = new URLSearchParams(location.search);
     if (params.get("auth") === "ok") {
@@ -201,11 +205,29 @@ async function startScan() {
   try {
     await api("/api/scan", { method: "POST" });
     $("#progress").hidden = false;
-    pollScan();
+    if (!state.sse) pollScan();
   } catch (err) {
     $("#btnScan").disabled = false;
     toast(err.message, true);
   }
+}
+
+function handleScanUpdate(scan) {
+  renderScan(scan);
+  if (scan.running || scan.phase === "idle") return;
+
+  const key = `${scan.phase}:${scan.finishedAt || ""}`;
+  if (state.scanDoneKey === key) return;
+  state.scanDoneKey = key;
+
+  $("#btnScan").disabled = false;
+  if (scan.phase === "done") {
+    loadResults();
+    toast(`Скан завершён: ${scan.rows} позиций`);
+  } else if (scan.phase === "error") {
+    toast("Ошибка скана: " + scan.message, true);
+  }
+  setTimeout(() => ($("#progress").hidden = true), 2500);
 }
 
 function pollScan() {
@@ -214,18 +236,8 @@ function pollScan() {
   const tick = async () => {
     try {
       const { scan } = await api("/api/scan/status");
-      renderScan(scan);
-      if (!scan.running && scan.phase !== "idle") {
-        clearInterval(state.poll);
-        $("#btnScan").disabled = false;
-        if (scan.phase === "done") {
-          await loadResults();
-          toast(`Скан завершён: ${scan.rows} позиций`);
-        } else if (scan.phase === "error") {
-          toast("Ошибка скана: " + scan.message, true);
-        }
-        setTimeout(() => ($("#progress").hidden = true), 2500);
-      }
+      handleScanUpdate(scan);
+      if (!scan.running && scan.phase !== "idle") clearInterval(state.poll);
     } catch (err) {
       clearInterval(state.poll);
       $("#btnScan").disabled = false;
@@ -233,6 +245,44 @@ function pollScan() {
   };
   tick();
   state.poll = setInterval(tick, 800);
+}
+
+function startSSE() {
+  if (!("EventSource" in window)) return false;
+  try {
+    const es = new EventSource("/api/events");
+    state.es = es;
+    state.sse = true;
+
+    es.addEventListener("intel", (e) => {
+      try {
+        state.intel = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      renderIntel();
+    });
+
+    es.addEventListener("scan", (e) => {
+      try {
+        handleScanUpdate(JSON.parse(e.data));
+      } catch {
+        /* ignore */
+      }
+    });
+
+    es.onerror = () => {
+      es.close();
+      state.es = null;
+      state.sse = false;
+      if ($("#tab-intel")?.classList.contains("active")) startIntelPoll();
+      if (!$("#progress").hidden) pollScan();
+    };
+    return true;
+  } catch {
+    state.sse = false;
+    return false;
+  }
 }
 
 function renderScan(scan) {

@@ -65,6 +65,55 @@ let scanState = {
 const intel = new IntelService({ esi, auth, getConfig: () => config, dataDir: DATA_DIR });
 intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
 
+// ---------------------------------------------------------------- SSE
+
+const sseClients = new Set();
+let lastScanBroadcast = 0;
+
+function sseFormat(event, data) {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function broadcast(event, data) {
+  if (!sseClients.size) return;
+  const msg = sseFormat(event, data);
+  for (const client of sseClients) {
+    try {
+      client.write(msg);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+function broadcastScan(force = false) {
+  if (!sseClients.size) return;
+  const now = Date.now();
+  if (!force && now - lastScanBroadcast < 400) return;
+  lastScanBroadcast = now;
+  broadcast("scan", publicScanState());
+}
+
+setInterval(async () => {
+  if (!sseClients.size) return;
+  if (scanState.running) broadcastScan();
+  try {
+    broadcast("intel", await intel.snapshot());
+  } catch {
+    /* ignore */
+  }
+}, 2000);
+
+setInterval(() => {
+  for (const client of sseClients) {
+    try {
+      client.write(": ping\n\n");
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}, 20_000);
+
 // ---------------------------------------------------------------- helpers
 
 const MIME = {
@@ -246,6 +295,7 @@ async function startScan() {
   const jobConfig = JSON.parse(JSON.stringify(config));
   const primary = primaryCharacter();
   const jobCharacter = primary ? { ...primary, structures: mergedStructures() } : null;
+  broadcastScan(true);
 
   runScan({
     esi,
@@ -253,6 +303,7 @@ async function startScan() {
     character: jobCharacter,
     onStatus: (s) => {
       scanState = { ...s, running: true };
+      broadcastScan();
     },
   })
     .then((result) => {
@@ -267,6 +318,7 @@ async function startScan() {
         finishedAt: Date.now(),
         rows: result.rows.length,
       };
+      broadcastScan(true);
     })
     .catch((err) => {
       scanState = {
@@ -277,6 +329,7 @@ async function startScan() {
         error: err.message,
         finishedAt: Date.now(),
       };
+      broadcastScan(true);
     });
 }
 
@@ -648,6 +701,38 @@ const server = http.createServer(async (req, res) => {
     // ---- API ----
     if (pathname === "/api/health") {
       sendJson(req, res, 200, { ok: true, time: new Date().toISOString() });
+      return;
+    }
+
+    if (pathname === "/api/events" && req.method === "GET") {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      res.write("retry: 3000\n\n");
+      sseClients.add(res);
+
+      intel
+        .snapshot()
+        .then((snap) => {
+          try {
+            res.write(sseFormat("intel", snap));
+          } catch {
+            /* ignore */
+          }
+        })
+        .catch(() => {});
+      try {
+        res.write(sseFormat("scan", publicScanState()));
+      } catch {
+        /* ignore */
+      }
+
+      req.on("close", () => {
+        sseClients.delete(res);
+      });
       return;
     }
 
