@@ -13,6 +13,20 @@ function Write-Log($msg) {
 }
 Write-Log "start pid=$PID"
 
+$heartbeatFile = Join-Path $PSScriptRoot "data\notifier-heartbeat.json"
+$script:lastShowAt = 0
+function Write-Heartbeat {
+  try {
+    $obj = @{
+      pid        = $PID
+      ts         = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      lastShowAt = $script:lastShowAt
+    }
+    [System.IO.File]::WriteAllText($heartbeatFile, ($obj | ConvertTo-Json -Compress))
+  } catch { }
+}
+Write-Heartbeat
+
 if ($Once) {
   try {
     $r = Invoke-RestMethod -Uri "$base/api/notifier/alerts" -TimeoutSec 15
@@ -136,6 +150,8 @@ function Format-Item($it) {
 
 function Show-Alert($items) {
   try {
+    $script:lastShowAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    Write-Heartbeat
     Write-Log ("show " + @($items).Count + " items: " + ((@($items) | ForEach-Object { $_.type }) -join ","))
     $top = @($items | Sort-Object ts -Descending | Select-Object -First 3)
     $types = @($top | ForEach-Object { $_.type } | Select-Object -Unique)
@@ -159,6 +175,7 @@ function Show-Alert($items) {
 }
 
 function Poll {
+  Write-Heartbeat
   try {
     $r = Invoke-RestMethod -Uri "$base/api/notifier/alerts" -TimeoutSec 8
   } catch {

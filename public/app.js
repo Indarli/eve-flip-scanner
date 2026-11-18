@@ -132,6 +132,7 @@ async function boot() {
     if (!sseOk && state.cfg.scan?.running) pollScan();
     if (!sseOk) startEsiPoll();
     scheduleAutoScan();
+    setInterval(loadNotifierStatus, 15_000);
 
     const params = new URLSearchParams(location.search);
     if (params.get("auth") === "ok") {
@@ -2055,10 +2056,27 @@ async function loadBackups() {
   }
 }
 
+async function loadNotifierStatus() {
+  const el = $("#notifierStatus");
+  if (!el) return;
+  try {
+    const st = await api("/api/notifier/status");
+    if (st.running) {
+      el.innerHTML = `<span style="color:var(--good)">работает</span> · pid ${st.pid} · ${Math.round(st.ageMs / 1000)} с назад`;
+    } else if (st.canAutoStart) {
+      el.innerHTML = `<span style="color:var(--bad)">не работает</span> · перезапущу автоматически`;
+    } else {
+      el.innerHTML = `<span style="color:var(--bad)">не работает</span> · автозапуск недоступен`;
+    }
+  } catch {
+    el.textContent = "не удалось проверить";
+  }
+}
+
 function renderSettings() {
   if (!state.cfg) return;
-  if ($("#aboutBox")) {
-    const v = esc(state.cfg.version || "—");
+  loadNotifierStatus();
+  if ($("#aboutBox")) {    const v = esc(state.cfg.version || "—");
     const ai = state.cfg.ai || { agent: "DeepSeek Harness", model: "deepseek-flash" };
     $("#aboutBox").innerHTML = `EVE Flip Scanner <b>v${v}</b> · создано с ИИ: ${esc(ai.agent)} / ${esc(
       ai.model
@@ -2099,6 +2117,16 @@ function renderDiag(stats) {
 
 // ------------------------------------------------------------------ events
 function bindUI() {
+  $("#btnNotifierStart").onclick = async () => {
+    try {
+      const r = await api("/api/notifier/start", { method: "POST", body: "{}" });
+      toast(r.ok ? "Запускаю нотификатор" : "Автозапуск недоступен", !r.ok);
+      setTimeout(loadNotifierStatus, 3000);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+
   $("#setScannerSave").onclick = async () => {
     try {
       const body = {

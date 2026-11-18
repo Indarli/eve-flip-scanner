@@ -14,6 +14,7 @@ data/
 ├── pi-cache.json        кэш планетарки (схемы, колонии)
 ├── sound.wav            пользовательский звук оповещения (если загружен)
 ├── logs/                app-YYYY-MM-DD.log (14 дней)
+├── notifier-heartbeat.json  отметка жизни нотификатора (pid, время)
 ├── backups/             автобэкапы config/tokens/characters
 └── cache/               ETag-кэш ответов ESI (много мелких JSON)
 ```

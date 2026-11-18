@@ -4,8 +4,8 @@ import fs from "node:fs";
 const pkg = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 import path from "node:path";
 import zlib from "node:zlib";
-import { exec } from "node:child_process";
-import { URL } from "node:url";
+import { exec, spawn } from "node:child_process";
+import { URL, fileURLToPath } from "node:url";
 
 import {
   HUBS,
@@ -37,6 +37,60 @@ import { attachFileLog } from "./lib/log.mjs";
 
 initDirs();
 attachFileLog(path.join(DATA_DIR, "logs"));
+
+// ---------------------------------------------------------------- нотификатор
+
+const notifierHeartbeatFile = path.join(DATA_DIR, "notifier-heartbeat.json");
+const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const notifierScript = path.join(ROOT_DIR, "notifier.vbs");
+let notifierLastStartAt = 0;
+
+function notifierStatus() {
+  let hb = null;
+  try {
+    hb = JSON.parse(fs.readFileSync(notifierHeartbeatFile, "utf8"));
+  } catch {
+    hb = null;
+  }
+  const ageMs = hb?.ts ? Date.now() - Number(hb.ts) : null;
+  return {
+    running: ageMs !== null && ageMs >= 0 && ageMs < 30_000,
+    ageMs,
+    pid: hb?.pid || null,
+    lastShowAt: hb?.lastShowAt || null,
+    canAutoStart: process.platform === "win32" && fs.existsSync(notifierScript),
+    lastStartAt: notifierLastStartAt || null,
+  };
+}
+
+function startNotifier() {
+  if (process.platform !== "win32" || !fs.existsSync(notifierScript)) return false;
+  try {
+    const child = spawn("wscript", [notifierScript], {
+      cwd: path.dirname(notifierScript),
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    notifierLastStartAt = Date.now();
+    console.log("[notifier] start requested");
+    return true;
+  } catch (e) {
+    console.log(`[notifier] start failed: ${e.message}`);
+    return false;
+  }
+}
+
+// watchdog: если heartbeat пропал — поднимаем нотификатор (не чаще раза в минуту)
+setInterval(() => {
+  const st = notifierStatus();
+  if (st.running) return;
+  if (!st.canAutoStart) return;
+  if (Date.now() - notifierLastStartAt < 60_000) return;
+  console.log("[notifier] heartbeat is stale, restarting");
+  startNotifier();
+}, 15_000);
 
 setTimeout(() => {
   try {
@@ -1002,6 +1056,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/notifier/status" && req.method === "GET") {
+      sendJson(req, res, 200, notifierStatus());
+      return;
+    }
+
+    if (pathname === "/api/notifier/start" && req.method === "POST") {
+      const started = startNotifier();
+      sendJson(req, res, 200, { ok: started, status: notifierStatus() });
+      return;
+    }
+
     if (pathname === "/api/backup/list" && req.method === "GET") {
       sendJson(req, res, 200, { backups: listBackups().slice(0, 30) });
       return;
@@ -1142,6 +1207,7 @@ const server = http.createServer(async (req, res) => {
         fees: primaryCharacter()?.fees || { source: "default", tax: defaultFees().tax, broker: defaultFees().broker, hubs: {} },
         esiStats: esi.stats,
         esiStatus: esi.status(),
+        notifier: notifierStatus(),
         version: pkg.version,
         ai: pkg.ai || null,
       });
