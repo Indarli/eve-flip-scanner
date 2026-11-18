@@ -90,6 +90,51 @@ intel.init().catch((e) => console.log(`[intel] init failed: ${e.message}`));
 const portfolioCaches = new Map();
 const compareCache = new Map();
 const locationCache = new Map();
+const tradingRefreshing = new Map();
+
+function mapOrders(orders) {
+  return (orders || []).map((o) => ({
+    order_id: o.order_id,
+    type_id: o.type_id,
+    location_id: o.location_id,
+    price: o.price,
+    volume_remain: o.volume_remain,
+    volume_total: o.volume_total,
+    is_buy_order: o.is_buy_order,
+    min_volume: o.min_volume,
+    issued: o.issued,
+    duration: o.duration,
+    escrow: o.escrow,
+  }));
+}
+
+/** Быстрое обновление торговых данных: кошелёк + активные ордера. */
+async function refreshTrading(characterId) {
+  const id = Number(characterId);
+  if (tradingRefreshing.has(id)) return tradingRefreshing.get(id);
+  const p = (async () => {
+    const ch = characters[id];
+    if (!ch) return null;
+    const [wallet, orders] = await Promise.all([
+      esi.get(`/characters/${id}/wallet/`, { auth: id }),
+      esi.pagesAll(`/characters/${id}/orders/?datasource=tranquility`, { auth: id, maxPages: 20 }),
+    ]);
+    ch.wallet = Number(wallet) || 0;
+    ch.ordersList = mapOrders(orders);
+    ch.orders = {
+      count: ch.ordersList.length,
+      buy: ch.ordersList.filter((o) => o.is_buy_order).length,
+      sell: ch.ordersList.filter((o) => !o.is_buy_order).length,
+      escrow: ch.ordersList.reduce((s, o) => s + (o.is_buy_order ? Number(o.escrow || 0) : 0), 0),
+    };
+    ch.tradingUpdatedAt = new Date().toISOString();
+    saveCharacters(characters);
+    portfolioCaches.delete(id);
+    return ch;
+  })().finally(() => tradingRefreshing.delete(id));
+  tradingRefreshing.set(id, p);
+  return p;
+}
 
 function withTimeout(promise, ms, fallback = null) {
   return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
@@ -206,6 +251,7 @@ async function buildPortfolio(characterId) {
       ...orders.map((o) => o.type_id),
       ...pricedTypes,
       ...(ch.transactionsStats?.rows || []).map((r) => r.typeId),
+      ...(ch.recentTrades || []).map((t) => t.typeId),
     ]),
   ];
   const names = await fetchTypeNames(typeIds);
@@ -255,6 +301,21 @@ async function buildPortfolio(characterId) {
   const inventoryValue = inventory.reduce((s, x) => s + x.value, 0);
   const tx = ch.transactionsStats || { rows: [], total: {} };
 
+  const trades = (ch.recentTrades || [])
+    .map((t) => ({
+      typeId: t.typeId,
+      typeName: nameOf(t.typeId),
+      isBuy: t.isBuy,
+      qty: t.qty,
+      price: t.price,
+      total: t.qty * t.price,
+      date: t.date,
+      locationId: t.locationId,
+      locationName: t.locationId ? locName(t.locationId) : null,
+    }))
+    .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
+    .slice(0, 40);
+
   const result = {
     character: { id: ch.characterId, name: ch.name, wallet: ch.wallet },
     summary: {
@@ -269,6 +330,7 @@ async function buildPortfolio(characterId) {
     },
     orders: marked.map((o) => ({ ...o, typeName: nameOf(o.typeId), locationName: locName(o.locationId) })),
     pnl: (tx.rows || []).map((r) => ({ ...r, typeName: nameOf(r.typeId) })).sort((a, b) => b.realized - a.realized),
+    trades,
     inventory,
     generatedAt: Date.now(),
   };
@@ -959,6 +1021,21 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/portfolio" && req.method === "GET") {
       const char = Number(url.searchParams.get("char")) || null;
+      const target = (char && characters[char]) || primaryCharacter();
+      const tradingAt = Date.parse(target?.tradingUpdatedAt || target?.updatedAt || 0);
+      if (target && Date.now() - tradingAt > 120_000) {
+        try {
+          await refreshTrading(target.characterId);
+        } catch (e) {
+          console.log(`[trading] refresh ${target.characterId} failed: ${e.message}`);
+        }
+      }
+      // профиль давно не обновлялся целиком — подтягиваем сделки/склад в фоне
+      if (target && Date.now() - Date.parse(target.updatedAt || 0) > 15 * 60_000) {
+        refreshCharacter(target.characterId).catch((e) =>
+          console.log(`[character] refresh ${target.characterId} failed: ${e.message}`)
+        );
+      }
       const data = await buildPortfolio(char);
       if (!data) {
         sendJson(req, res, 401, { error: "Нет авторизованного персонажа" });
@@ -974,6 +1051,14 @@ const server = http.createServer(async (req, res) => {
       const char = Number(body.characterId) || Number(url.searchParams.get("char")) || null;
       if (char) portfolioCaches.delete(char);
       else portfolioCaches.clear();
+      const targetId = char || primaryCharacter()?.characterId;
+      if (targetId) {
+        try {
+          await refreshTrading(targetId);
+        } catch (e) {
+          console.log(`[trading] refresh ${targetId} failed: ${e.message}`);
+        }
+      }
       const data = await buildPortfolio(char);
       const code = !data ? 401 : data.pending ? 202 : data.error ? 404 : 200;
       sendJson(req, res, code, data || { error: "Нет авторизованного персонажа" });

@@ -1463,8 +1463,28 @@ function renderPortfolio() {
         .join("")}</tbody></table>`
     : `<div class="intel-empty">Активных ордеров нет.</div>`;
 
-  const pnl = (d.pnl || []).slice(0, 40);
-  $("#pfPnl").innerHTML = pnl.length
+  const trades = (d.trades || []).slice(0, 40);
+  $("#pfTrades").innerHTML = trades.length
+    ? `<table class="intel-table"><thead><tr>
+        <th>Когда</th><th>Тип</th><th>Сделка</th><th class="num">Кол-во</th><th class="num">Цена</th>
+        <th class="num">Сумма</th><th>Место</th>
+      </tr></thead><tbody>${trades
+        .map((t) => {
+          const when = t.date ? new Date(t.date).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+          return `<tr>
+            <td class="age">${esc(when)}</td>
+            <td>${esc(t.typeName)}</td>
+            <td><span class="badge ${t.isBuy ? "good" : "bad"}">${t.isBuy ? "buy" : "sell"}</span></td>
+            <td class="num">${fmt(t.qty)}</td>
+            <td class="num">${isk(t.price)}</td>
+            <td class="num">${isk(t.total)}</td>
+            <td class="age">${esc(t.locationName || "—")}</td>
+          </tr>`;
+        })
+        .join("")}</tbody></table>`
+    : `<div class="intel-empty">Сделок пока нет.</div>`;
+
+  const pnl = (d.pnl || []).slice(0, 40);  $("#pfPnl").innerHTML = pnl.length
     ? `<table class="intel-table"><thead><tr>
         <th>Тип</th><th class="num">Куплено</th><th class="num">Продано</th><th class="num">Ср. покупка</th>
         <th class="num">Ср. продажа</th><th class="num">P&L</th><th class="num">Остаток</th>
