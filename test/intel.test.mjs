@@ -42,6 +42,18 @@ test("clr очищает систему целиком", () => {
   assert.equal(svc.pilots.size, 0);
 });
 
+test("стоп-слова и словосочетания не становятся пилотами", () => {
+  const svc = makeSvc();
+  const { candidates } = svc.parseText(
+    "Jita* ESS Sisters Combat Combat Scanner Scanner Probe SURE STATUS Pilot One"
+  );
+  const lower = candidates.map((c) => c.toLowerCase());
+  for (const bad of ["ess", "sure", "status", "sisters combat", "combat scanner", "scanner probe"]) {
+    assert.ok(!lower.includes(bad), `лишний кандидат: ${bad}`);
+  }
+  assert.ok(lower.includes("pilot one"));
+});
+
 test("ники, +N и корабль из текста; тип не становится пилотом", () => {
   const svc = makeSvc();
   svc.resolveCache.set("pilot one", {
